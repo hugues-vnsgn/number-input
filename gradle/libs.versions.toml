@@ -1,0 +1,27 @@
+[versions]
+# ---------------------------------------------------------------------------
+# TOOLCHAIN FLOOR — do not raise casually.
+#
+# These versions are the hard MINIMUM for every consumer of this library:
+# Kotlin klibs have no forward compatibility, so a consumer on an older Kotlin
+# than the one used here cannot resolve this artifact at all.
+#   - Kotlin 2.2.20 / CMP 1.9.0 matches of1-freight-mobile (BFSOne) exactly.
+#   - CMP 1.11 removes iosX64, which BFSOne still declares. Do not jump to it
+#     without confirming every consumer has dropped that target.
+# ---------------------------------------------------------------------------
+kotlin = "2.2.20"
+composeMultiplatform = "1.9.0"
+agp = "8.7.3"
+
+android-compileSdk = "35"
+# Deliberately below BFSOne's 24 so the library is not the binding constraint.
+android-minSdk = "23"
+
+[libraries]
+kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
+
+[plugins]
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+compose-multiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
+android-library = { id = "com.android.library", version.ref = "agp" }
