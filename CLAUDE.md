@@ -120,8 +120,9 @@ end (`WindowInsets.ime` reads 0 inside a separate window). Don't reintroduce it.
 
 `/Users/hugues_mini/Codes/cmp` is a separate CMP app (`:androidApp`, `:shared`, `iosApp/`) that
 consumes this library and can be launched on a device/simulator. It resolves
-`dev.viethung:number-input:1.0.0-SNAPSHOT` from **mavenLocal**, so any change here must be published
-before the app sees it:
+`dev.viethung:number-input` from **mavenLocal** at the version pinned in that repo's
+`gradle/libs.versions.toml` (`numberInput`), so any change here must be published before the app sees
+it — and a version bump here needs the same bump there:
 
 ```bash
 ./gradlew :number-input:publishToMavenLocal                    # in this repo, first

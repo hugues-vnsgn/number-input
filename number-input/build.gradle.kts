@@ -1,3 +1,4 @@
+import com.vanniktech.maven.publish.SonatypeHost
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -5,11 +6,11 @@ plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.compose.compiler)
-    id("maven-publish")
+    alias(libs.plugins.maven.publish)
 }
 
 group = "dev.viethung"
-version = "1.0.0-SNAPSHOT"
+version = "1.0.0"
 
 kotlin {
     androidTarget {
@@ -36,6 +37,48 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+        }
+    }
+}
+
+mavenPublishing {
+    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
+
+    // Central requires every artifact to be signed, but `publishToMavenLocal` is the inner loop for
+    // the sample app and must keep working on a machine with no GPG key. Sign only once signing
+    // credentials are actually present — see README for which properties to set.
+    if (providers.gradleProperty("signingInMemoryKey").isPresent ||
+        providers.gradleProperty("signing.keyId").isPresent
+    ) {
+        signAllPublications()
+    }
+
+    pom {
+        name.set("number-input")
+        description.set(
+            "Locale-aware numeric text field for Compose Multiplatform (Android + iOS) with " +
+                "live thousands grouping and a Clear / plus-minus / Done keyboard toolbar.",
+        )
+        inceptionYear.set("2026")
+        url.set("https://github.com/hugues-vnsgn/number-input")
+        licenses {
+            license {
+                name.set("The Apache License, Version 2.0")
+                url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+                distribution.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+            }
+        }
+        developers {
+            developer {
+                id.set("hugues-vnsgn")
+                name.set("Do Viet Hung")
+                url.set("https://github.com/hugues-vnsgn")
+            }
+        }
+        scm {
+            url.set("https://github.com/hugues-vnsgn/number-input")
+            connection.set("scm:git:git://github.com/hugues-vnsgn/number-input.git")
+            developerConnection.set("scm:git:ssh://git@github.com/hugues-vnsgn/number-input.git")
         }
     }
 }

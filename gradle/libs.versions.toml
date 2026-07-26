@@ -13,6 +13,9 @@ kotlin = "2.2.20"
 composeMultiplatform = "1.9.0"
 agp = "8.7.3"
 
+# Publishing only — not part of the consumer-facing floor above, so it can move freely.
+mavenPublish = "0.33.0"
+
 android-compileSdk = "35"
 # Deliberately below BFSOne's 24 so the library is not the binding constraint.
 android-minSdk = "23"
@@ -25,3 +28,4 @@ kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref 
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 compose-multiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
 android-library = { id = "com.android.library", version.ref = "agp" }
+maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "mavenPublish" }
