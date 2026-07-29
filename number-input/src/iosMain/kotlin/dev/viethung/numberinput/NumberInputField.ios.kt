@@ -142,6 +142,12 @@ internal fun ungroupTypedText(
     decimalSeparator: String,
 ): String {
     if (groupingSeparator.isEmpty()) return grouped
+    // A multi-character insertion — paste, dictation, autocomplete — is a whole number that only
+    // NumberInputState can interpret, because which of its separators is decimal depends on where
+    // they sit. Stripping here would destroy that evidence first: a pasted "1234,5" would arrive as
+    // "12345". Hand it over untouched instead.
+    val inserted = insertion(grouped, previousDisplay)
+    if (inserted != null && inserted.text.length > 1) return grouped
     // Runs for every locale: the inserted key may be this locale's grouping separator (a "," typed
     // into an en-US field on a ","-region device), which the strip below would otherwise discard.
     // Substituting before stripping is what preserves it — the order matters.

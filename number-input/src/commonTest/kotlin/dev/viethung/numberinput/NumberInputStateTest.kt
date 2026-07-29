@@ -59,13 +59,18 @@ class NumberInputStateTest {
         assertEquals("42.5", s.rawText)
     }
 
+    /**
+     * Non-numeric text arriving at once is rejected outright, so neither `value` nor `rawText` moves.
+     * `rawText` used to hold the "abc" verbatim until commit, which broke its own always-canonical
+     * invariant and left the field displaying text no value corresponded to.
+     */
     @Test
     fun onTextChange_with_invalid_text_keeps_last_value() {
         val s = makeState(initialValue = 10.0)
         s.onFocusChanged(true)
         s.onTextChange("abc")
         assertEquals(10.0, s.value)
-        assertEquals("abc", s.rawText)
+        assertEquals("10.00", s.rawText)
     }
 
     @Test
@@ -201,9 +206,15 @@ class NumberInputStateTest {
     }
 
     /**
-     * The fraction cap counts digits after the *first* separator, so a second one slips past it:
-     * "1.2.3" has two fraction digits by that measure. It does not parse, so `value` would silently
-     * stop tracking `rawText` — the field would show text no committed value corresponds to.
+     * Two separators never describe a number, and `value` must not stop tracking `rawText` — a field
+     * showing text no committed value corresponds to is the failure being guarded against.
+     *
+     * The two paths reach that outcome differently, which is worth knowing when either changes. The
+     * lone "." appended to "1.2" is a keystroke, caught by the repeated-separator guard because the
+     * fraction cap counts only digits after the *first* separator and so lets "1.2.3" past. The
+     * multi-character edits are whole-number input, rejected during interpretation instead: no
+     * reading survives when one character would have to serve as both decimal point and grouping
+     * separator.
      */
     @Test
     fun onTextChange_rejects_a_second_decimal_separator() {
