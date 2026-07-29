@@ -111,15 +111,19 @@ class NumberInputState(
         }.orEmpty()
 
     /**
-     * The decimal keypad emits "." regardless of locale. On a locale whose decimal separator isn't
-     * "." (e.g. de-DE/vi-VN) a typed "." would otherwise fail to register. Diff the new text against
-     * the previously displayed text to isolate the character just inserted; if it's a lone "."
-     * substitute the locale's separator. The buffer is ungrouped, so this diff is clean.
+     * The keyboard's decimal key follows the device region, not [NumberInputConfig.locale], so the
+     * character that arrives may be either "." or ",". Diff the new text against the previous buffer
+     * to isolate the character just inserted; if it is a decimal key, substitute this locale's
+     * separator. The buffer is ungrouped, so this diff is clean.
+     *
+     * This runs for every locale, including those whose separator is already ".". Skipping them was
+     * the original defect: an en-US field on a ","-region device had its keystroke read as a
+     * *grouping* separator and dropped, so `2500,8` committed as `25008`.
      */
     private fun substituteTypedDecimal(newRawText: String, previousRaw: String): String {
         val decSep = formatter.decimalSeparator(config.locale)
-        if (decSep == ".") return newRawText
-        return substituteInsertedDot(newRawText, previousRaw, decSep)
+        if (decSep.isEmpty()) return newRawText
+        return substituteInsertedDecimalKey(newRawText, previousRaw, decSep)
     }
 
     /**
