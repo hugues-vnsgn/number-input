@@ -47,7 +47,7 @@ class NumberInputState(
     }
 
     fun onTextChange(rawInput: String) {
-        val newRawText = substituteTypedDecimal(rawInput, rawText)
+        val newRawText = resolveInput(rawInput) ?: return
         if (exceedsFractionCap(newRawText)) return
         if (repeatsDecimalSeparator(newRawText)) return
         val parsed = formatter.parse(newRawText, config.locale)
@@ -124,6 +124,53 @@ class NumberInputState(
         val decSep = formatter.decimalSeparator(config.locale)
         if (decSep.isEmpty()) return newRawText
         return substituteInsertedDecimalKey(newRawText, previousRaw, decSep)
+    }
+
+    /**
+     * Resolve an incoming buffer to canonical ungrouped text, or `null` to reject the edit and leave
+     * the field untouched.
+     *
+     * One keystroke is resolved by *what* arrived; anything longer has to be resolved by *where* its
+     * separators sit, so the two take different paths. A paste, dictation result, autocomplete, or
+     * any input method that delivers a whole number at once lands on the second.
+     *
+     * Rejecting matters more than it looks. Passing an uninterpretable paste through used to leave
+     * `rawText` holding the pasted string verbatim — separators and all — which both breaks the
+     * always-ungrouped invariant and lets the parser read a number the user never pasted: `1234,5`
+     * in an en-US field committed 12345, off by a factor of ten and silent about it.
+     */
+    private fun resolveInput(rawInput: String): String? {
+        val decSep = formatter.decimalSeparator(config.locale)
+        if (decSep.isEmpty()) return rawInput
+        val inserted = insertion(rawInput, rawText)
+        return if (inserted != null && inserted.text.length > 1) {
+            interpretWholeNumber(rawInput, decSep, formatter.groupingSeparator(config.locale))
+                ?.let { dropRedundantFractionZeros(it, decSep) }
+        } else {
+            substituteTypedDecimal(rawInput, rawText)
+        }
+    }
+
+    /**
+     * Drop fraction digits past [NumberInputConfig.significantDigits] while they are zeros, and the
+     * separator too if nothing is left after it.
+     *
+     * A number that arrives whole carries the precision of wherever it was copied from, which need
+     * not match this field's. `1.500` pasted into a two-digit field would otherwise be refused for
+     * overflowing the cap by one digit — even though `1.500` and `1.50` are the same number, so
+     * there is nothing to refuse.
+     *
+     * Only zeros are dropped. Trimming `1.567` to `1.56` would change the value the user supplied,
+     * and silently changing it is the thing this whole path exists to prevent — so that still fails
+     * the cap and is rejected, visibly.
+     */
+    private fun dropRedundantFractionZeros(text: String, decimalSeparator: String): String {
+        val decIdx = text.indexOf(decimalSeparator)
+        if (decIdx < 0) return text
+        val fractionStart = decIdx + decimalSeparator.length
+        var end = text.length
+        while (end - fractionStart > config.significantDigits && text[end - 1] == '0') end--
+        return if (end == fractionStart) text.substring(0, decIdx) else text.substring(0, end)
     }
 
     /**

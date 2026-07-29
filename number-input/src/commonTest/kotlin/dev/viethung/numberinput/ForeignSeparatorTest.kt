@@ -118,20 +118,17 @@ class ForeignSeparatorTest {
     }
 
     /**
-     * A multi-character insertion is not a keystroke, so a separator inside it carries no decimal
-     * intent and must not be translated. Uses a *foreign* separator, because a "." in an en-US paste
-     * would be left alone either way and so would not exercise this boundary at all.
-     *
-     * Paste therefore diverges from typing: typing "," into an en-US field means a decimal point,
-     * pasting "1234,5" does not. See the paste/hardware-keyboard ticket — resolving that divergence
-     * is its scope, not this one's.
+     * A multi-character insertion is not a keystroke, so it takes the whole-number path instead of
+     * this one — its separators are resolved by position rather than by the character typed. Asserted
+     * here only to show the two paths agree on the outcome; [WholeNumberInputTest] owns that path.
      */
     @Test
-    fun a_foreign_separator_inside_a_multi_character_paste_is_not_translated() {
+    fun a_foreign_separator_inside_a_multi_character_paste_resolves_too() {
         val s = state(locale = "en-US")
 
         s.onTextChange("1234,5")
 
-        assertEquals("1234,5", s.rawText, "left exactly as pasted, not reinterpreted")
+        assertEquals("1234.5", s.rawText)
+        assertEquals(1234.5, s.value)
     }
 }
