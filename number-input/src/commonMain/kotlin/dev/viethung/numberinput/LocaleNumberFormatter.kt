@@ -33,7 +33,7 @@ expect fun newLocaleNumberFormatter(): LocaleNumberFormatter
  * device drops the fraction. That is the same shape as the defect this set fixes, unaddressed for
  * non-Latin keys, and it predates this translation rather than being introduced by it.
  */
-private val DECIMAL_KEY_CANDIDATES = setOf(".", ",")
+internal val DECIMAL_KEY_CANDIDATES = setOf(".", ",")
 
 /**
  * Diff [newText] against the [previousText] it replaced to isolate the characters just inserted; if
