@@ -142,11 +142,10 @@ internal fun ungroupTypedText(
     decimalSeparator: String,
 ): String {
     if (groupingSeparator.isEmpty()) return grouped
-    val disambiguated = if (groupingSeparator == ".") {
-        substituteInsertedDot(grouped, previousDisplay, decimalSeparator)
-    } else {
-        grouped
-    }
+    // Runs for every locale: the inserted key may be this locale's grouping separator (a "," typed
+    // into an en-US field on a ","-region device), which the strip below would otherwise discard.
+    // Substituting before stripping is what preserves it — the order matters.
+    val disambiguated = substituteInsertedDecimalKey(grouped, previousDisplay, decimalSeparator)
     return disambiguated.replace(groupingSeparator, "")
 }
 

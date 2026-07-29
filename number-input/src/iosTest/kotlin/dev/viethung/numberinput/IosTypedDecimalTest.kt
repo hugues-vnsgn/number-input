@@ -17,38 +17,12 @@ import platform.UIKit.UITextField
  */
 class IosTypedDecimalTest {
 
-    /**
-     * Replays a decimal-keypad sequence against the real state machine, mirroring
-     * `PlatformNumberInputField`: the native buffer is whatever was displayed plus the character
-     * just typed (the caret sits at the end), and the library rewrites the display after each edit.
-     */
-    private class FieldDriver(locale: String, significantDigits: Int) {
-        private val formatter = newLocaleNumberFormatter()
-        private val config = NumberInputConfig(
-            significantDigits = significantDigits,
-            locale = locale,
-        )
-        private val group = formatter.groupingSeparator(config.locale)
-        private val decimal = formatter.decimalSeparator(config.locale)
-
-        val state = NumberInputState(formatter, initialValue = null, config = config)
-        var display: String = ""
-            private set
-
-        init {
-            state.onFocusChanged(true)
-        }
-
-        fun type(keys: String) = keys.forEach { key ->
-            val native = display + key
-            state.onTextChange(ungroupTypedText(native, display, group, decimal))
-            display = formatter.formatLive(state.rawText, config.locale)
-        }
-    }
+    // The keypad replay harness lives in [IosFieldDriver], shared with the other grouped-buffer
+    // suite so the wiring it mirrors is encoded exactly once.
 
     @Test
     fun de_DE_keypad_decimal_point_survives_ungrouping() {
-        val field = FieldDriver(locale = "de-DE", significantDigits = 3)
+        val field = IosFieldDriver(locale = "de-DE", significantDigits = 3)
 
         // The decimal keypad emits "." even though de-DE writes decimals with ",".
         field.type("25500.8")
@@ -60,7 +34,7 @@ class IosTypedDecimalTest {
 
     @Test
     fun de_DE_grouped_buffer_does_not_accumulate_separators() {
-        val field = FieldDriver(locale = "de-DE", significantDigits = 3)
+        val field = IosFieldDriver(locale = "de-DE", significantDigits = 3)
 
         field.type("1234567")
 
@@ -81,7 +55,7 @@ class IosTypedDecimalTest {
      */
     @Test
     fun vi_VN_integer_only_field_rejects_a_typed_separator() {
-        val field = FieldDriver(locale = "vi-VN", significantDigits = 0)
+        val field = IosFieldDriver(locale = "vi-VN", significantDigits = 0)
 
         field.type("2500000.")
 
@@ -92,7 +66,7 @@ class IosTypedDecimalTest {
 
     @Test
     fun en_US_keypad_decimal_point_is_unaffected() {
-        val field = FieldDriver(locale = "en-US", significantDigits = 2)
+        val field = IosFieldDriver(locale = "en-US", significantDigits = 2)
 
         field.type("25500.8")
 
@@ -104,7 +78,7 @@ class IosTypedDecimalTest {
     /** A fraction digit past the cap is rejected, and the display must not drift past it either. */
     @Test
     fun fraction_digits_past_the_cap_leave_the_display_untouched() {
-        val field = FieldDriver(locale = "en-US", significantDigits = 2)
+        val field = IosFieldDriver(locale = "en-US", significantDigits = 2)
 
         field.type("1234.567")
 
