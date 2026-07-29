@@ -42,4 +42,26 @@ data class NumberInputStyle(
     val clearLabel: String = "Clear",
     val signLabel: String = "±",
     val doneLabel: String = "Done",
+
+    // ----- Built-in keypad -----
+    // Only used when NumberInputConfig.useBuiltInKeypad is on. Separate from the field's own colours
+    // because the keypad stands in for the system keyboard: it should look like a keyboard sitting
+    // under the content, not like a bigger version of the field.
+    val keypadBackgroundColor: Color = Color(0xFFD1D3D9),
+    val keyBackgroundColor: Color = Color.White,
+    val keyTextColor: Color = Color.Black,
+    val keyTextSize: TextUnit = 22.sp,
+    val keyHeight: Dp = 48.dp,
+    val keyCornerRadius: Dp = 5.dp,
+    /**
+     * The backspace glyph, and the names a screen reader speaks for the two keys whose labels are
+     * punctuation or a symbol. Localise both descriptions: a symbol has no spoken name of its own, and
+     * "." and "," sound identical read aloud even when the reader announces them at all.
+     *
+     * The decimal key's *label* is not configurable — it is the locale's separator, which is the whole
+     * reason the keypad exists.
+     */
+    val backspaceLabel: String = "⌫",
+    val backspaceContentDescription: String = "Delete",
+    val decimalContentDescription: String = "Decimal separator",
 )

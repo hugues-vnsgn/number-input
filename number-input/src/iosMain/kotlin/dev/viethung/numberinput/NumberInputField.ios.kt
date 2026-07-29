@@ -1,7 +1,11 @@
 package dev.viethung.numberinput
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -10,6 +14,8 @@ import androidx.compose.ui.viewinterop.UIKitInteropProperties
 import androidx.compose.ui.viewinterop.UIKitView
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.readValue
+import platform.CoreGraphics.CGRectZero
 import platform.Foundation.NSAttributedString
 import platform.Foundation.NSSelectorFromString
 import platform.Foundation.create
@@ -32,6 +38,7 @@ import platform.UIKit.UIKeyboardTypeDecimalPad
 import platform.UIKit.UITextField
 import platform.UIKit.UITextFieldDelegateProtocol
 import platform.UIKit.UIToolbar
+import platform.UIKit.UIView
 import platform.darwin.NSObject
 
 /**
@@ -65,6 +72,21 @@ internal actual fun PlatformNumberInputField(
 
     val coordinator = remember { NumberInputCoordinator() }
 
+    // Only the keypad path needs the host; the system-keyboard path gets its toolbar from UIKit as an
+    // inputAccessoryView and never publishes itself here.
+    val host = LocalNumberInputToolbarHost.current
+    var focused by remember { mutableStateOf(false) }
+    val showKeypad = focused && enabled && state.config.useBuiltInKeypad
+
+    DisposableEffect(host, showKeypad, state, style) {
+        if (host != null && showKeypad) {
+            // Same dismissal route as the UIToolbar's Done: resigning first responder runs
+            // textFieldDidEndEditing, which commits. One commit path on both keyboards.
+            host.show(state, style) { coordinator.resignFocus() }
+        }
+        onDispose { host?.hide(state) }
+    }
+
     // Refreshed every recomposition so the callbacks always close over the current state.
     coordinator.onTextChanged = { grouped ->
         state.onTextChange(
@@ -80,7 +102,10 @@ internal actual fun PlatformNumberInputField(
         // one, and the character would stay on screen. See [NumberInputCoordinator.resyncText].
         coordinator.resyncText(formatter.formatLive(state.rawText, state.config.locale))
     }
-    coordinator.onFocusChanged = state::onFocusChanged
+    coordinator.onFocusChanged = { isFocused ->
+        focused = isFocused
+        state.onFocusChanged(isFocused)
+    }
 
     UIKitView(
         factory = {
@@ -95,7 +120,18 @@ internal actual fun PlatformNumberInputField(
                     action = NSSelectorFromString("textChanged"),
                     forControlEvents = UIControlEventEditingChanged,
                 )
-                setInputAccessoryView(coordinator.buildToolbar(style))
+                if (state.config.useBuiltInKeypad) {
+                    // An empty inputView is how UIKit is told a field supplies its own input: the
+                    // field still becomes first responder, so the caret shows and
+                    // textFieldDidEndEditing still fires the commit, but the system draws no
+                    // keyboard. A zero-size view rather than none at all — nil means "use the
+                    // default", which is the keyboard this is replacing.
+                    setInputView(UIView(frame = CGRectZero.readValue()))
+                    // No accessory view either: the Compose keypad carries the toolbar row itself,
+                    // and an accessory view attaches to the keyboard that is no longer there.
+                } else {
+                    setInputAccessoryView(coordinator.buildToolbar(style))
+                }
             }
         },
         modifier = modifier,
@@ -279,8 +315,16 @@ internal class NumberInputCoordinator : NSObject(), UITextFieldDelegateProtocol 
 
     @kotlinx.cinterop.ObjCAction
     fun doneTapped() {
-        // Resigning first responder runs textFieldDidEndEditing, which commits — one commit path
-        // rather than two that can drift apart.
+        resignFocus()
+    }
+
+    /**
+     * Drop first responder, which runs `textFieldDidEndEditing` and commits.
+     *
+     * Shared by the `UIToolbar`'s Done selector and the Compose keypad's Done, so both keyboards
+     * dismiss and commit through one path rather than two that can drift apart.
+     */
+    fun resignFocus() {
         textField?.resignFirstResponder()
     }
 

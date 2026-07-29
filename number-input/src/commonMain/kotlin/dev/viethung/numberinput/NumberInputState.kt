@@ -61,6 +61,69 @@ class NumberInputState(
         phase = NumberInputPhase.Editing
     }
 
+    // ----- Built-in keypad -------------------------------------------------------------------
+    //
+    // Every press routes through onTextChange rather than assigning rawText directly, which is the
+    // whole point: the fraction cap, the repeated-separator guard and the keystroke filter already
+    // live there, and a keypad that wrote the buffer itself would have to restate all three and then
+    // keep them in step. A press is a keystroke that happens to originate in-process.
+
+    /** The character the decimal key should show — this locale's separator, not whatever "." implies. */
+    val decimalKeyLabel: String get() = formatter.decimalSeparator(config.locale)
+
+    val digitEnabled: Boolean
+        get() = NumberInputKeypadRules.digitEnabled(
+            rawText,
+            formatter.decimalSeparator(config.locale),
+            config.significantDigits,
+        )
+
+    val decimalEnabled: Boolean
+        get() = NumberInputKeypadRules.decimalEnabled(
+            rawText,
+            formatter.decimalSeparator(config.locale),
+            config.significantDigits,
+        )
+
+    val backspaceEnabled: Boolean get() = NumberInputKeypadRules.backspaceEnabled(rawText)
+
+    /** Append a digit. Ignored when the fraction is already full. */
+    fun pressDigit(digit: Int) {
+        require(digit in 0..9) { "digit must be in 0..9, got $digit" }
+        onTextChange(rawText + digit)
+    }
+
+    /**
+     * Append this locale's decimal separator.
+     *
+     * Appends the separator itself rather than a "." for the keystroke translation to convert: the
+     * keypad is in-process and already knows the locale, so there is no device region to disagree
+     * with. The translation still runs and is a no-op, since the character already matches.
+     */
+    fun pressDecimalSeparator() {
+        onTextChange(rawText + formatter.decimalSeparator(config.locale))
+    }
+
+    /**
+     * Delete the last character — exactly one press per visible character, including the separator, so
+     * "1.5" goes to "1." and then to "1".
+     *
+     * The separator is dropped as a unit rather than by one character. Every locale reports a
+     * single-character separator in practice, which makes this identical to dropping one; it is written
+     * this way so a multi-character separator would not leave half of one behind.
+     */
+    fun pressBackspace() {
+        if (rawText.isEmpty()) return
+        val decSep = formatter.decimalSeparator(config.locale)
+        onTextChange(
+            if (decSep.isNotEmpty() && rawText.endsWith(decSep)) {
+                rawText.dropLast(decSep.length)
+            } else {
+                rawText.dropLast(1)
+            },
+        )
+    }
+
     fun toggleSign() {
         if (!config.allowNegative) return
         val current = value ?: return
