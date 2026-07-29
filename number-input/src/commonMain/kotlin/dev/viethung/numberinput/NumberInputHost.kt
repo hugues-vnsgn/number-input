@@ -45,13 +45,18 @@ import androidx.compose.ui.unit.sp
  * (`enableEdgeToEdge()`). Without them the Activity never receives IME insets and the toolbar will
  * sit still while the keyboard opens.
  *
- * **iOS:** does nothing. The field there is a native `UITextField` carrying a real
- * `inputAccessoryView`, which the system attaches to the keyboard, so no host is involved. The
- * wrapper is accepted anyway so the same code compiles on both platforms.
+ * **iOS:** does nothing for the default system-keyboard path. The field there is a native
+ * `UITextField` carrying a real `inputAccessoryView`, which the system attaches to the keyboard, so no
+ * host is involved. The wrapper is accepted anyway so the same code compiles on both platforms.
  *
- * Omitting the host is supported: the field falls back to rendering its toolbar inline, directly
- * beneath itself. That keeps the actions reachable rather than silently dropping them, but it will
- * not track the keyboard.
+ * **With [NumberInputConfig.useBuiltInKeypad], the host matters on both platforms.** The keypad is
+ * Compose on iOS too, and nothing hands a Compose composable to the system keyboard's accessory view,
+ * so it has to be laid out at the bottom of the window like the Android toolbar. It brings its own
+ * toolbar row, so the host renders one or the other, never both.
+ *
+ * Omitting the host is supported: the field falls back to rendering the toolbar — or the keypad —
+ * inline, directly beneath itself. That keeps the actions reachable rather than silently dropping
+ * them, but it will not sit above the safe area, and an inline keypad pushes content below it down.
  */
 @Composable
 fun NumberInputHost(
@@ -63,15 +68,32 @@ fun NumberInputHost(
         Box(modifier.fillMaxSize()) {
             content()
             host.request?.let { request ->
-                NumberInputToolbarBar(
-                    state = request.state,
-                    style = request.style,
-                    onDone = request.onDone,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .navigationBarsPadding()
-                        .imePadding(),
-                )
+                // The keypad carries the toolbar itself, so this picks one or the other rather than
+                // stacking them.
+                //
+                // No imePadding when the keypad is showing: it *replaces* the system keyboard, which
+                // both platforms suppress, so that inset is zero and reserving space for it would
+                // leave a gap. The navigation-bar inset still applies — the keypad's bottom row would
+                // otherwise sit under the home indicator.
+                val bottom = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+
+                if (request.state.config.useBuiltInKeypad) {
+                    NumberInputKeypad(
+                        state = request.state,
+                        style = request.style,
+                        onDone = request.onDone,
+                        modifier = bottom,
+                    )
+                } else {
+                    NumberInputToolbarBar(
+                        state = request.state,
+                        style = request.style,
+                        onDone = request.onDone,
+                        modifier = bottom.imePadding(),
+                    )
+                }
             }
         }
     }

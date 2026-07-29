@@ -69,6 +69,38 @@ dispatcher control. It owns `value: Double?`, `rawText: String`, and a two-value
 `NumberInputToolbarRules` is a UI-type-free object so the Compose toolbar and the `UIToolbar` derive
 item enablement from the same rules.
 
+**The built-in keypad (`NumberInputConfig.useBuiltInKeypad`, off by default)** is one Compose
+implementation shared by both platforms, not a Compose keypad plus a UIKit one — a keypad is a grid of
+buttons over shared state, with none of the caret/selection/input-method behaviour that forced the field
+itself to be native on iOS. Each platform only suppresses its own system keyboard: Android sets
+`readOnly = true` on the `BasicTextField` (focusable, so the caret and the focus-loss commit path
+survive; `enabled = false` would have taken focus with it), iOS gives the `UITextField` an empty
+`inputView` and drops the `inputAccessoryView`, since the Compose keypad carries the toolbar row itself.
+Every press (`NumberInputState.pressDigit/pressDecimalSeparator/pressBackspace`) is expressed as a
+`rawText` edit and routed through the existing `onTextChange`, so the fraction cap, the one-separator
+rule and the keystroke filter apply to the keypad for free rather than being restated —
+`NumberInputKeypadRules` only asks the same conditions in advance so a key can be greyed out before it's
+pressed. `NumberInputHost` renders the keypad in place of the bare toolbar (never both; the keypad's row
+*is* the toolbar) and needs it on **both** platforms now, since the keypad is Compose everywhere.
+
+The decimal key is the reason the feature exists: it reads `NumberInputState.decimalKeyLabel`, this
+field's own locale separator, rather than following the device region the system decimal pad is stuck
+with.
+
+A real accessibility defect surfaced building this, worth knowing about before touching
+`NumberInputKeypad.kt` again: a `clickable` `Box` with a `BasicText` child publishes the box and the
+text as **separate** semantics nodes. On iOS every digit key reached the accessibility tree as bare
+static text — no button role, no identifier, a frame the size of the glyph rather than the key —
+unreachable by VoiceOver and untappable by a UI test, while backspace looked fine only because it
+happened to carry a `contentDescription`. The fix is three things together on the `Key` composable, and
+dropping any one reopens the tree: `Role.Button` and `onClickLabel` on `clickable` itself,
+`semantics(mergeDescendants = true) { contentDescription = ... }` layered after it, and
+`clearAndSetSemantics {}` on the inner `BasicText` so the glyph stops publishing a node of its own.
+`NumberInputKeypadSemanticsTest` (`iosTest`, via Compose's `runComposeUiTest`) pins this — asserting
+only `assertHasClickAction()` on the tagged node is not enough, since the tag sits on the `Box` and that
+assertion passes against the broken code too; the test has to check the *same* node also carries the
+role and the spoken name, and that the glyph text is unreachable by `onAllNodesWithText`.
+
 **Formatting (`LocaleNumberFormatter`)** is a public, injectable interface with an `expect fun
 newLocaleNumberFormatter()` factory — `DecimalFormat` on Android, `NSNumberFormatter` on iOS, both
 cached per locale and both mutating a shared instance, so every method sets the full set of properties
@@ -158,10 +190,25 @@ Note: `cmp/androidApp/src/main/AndroidManifest.xml` does **not** set
 `windowSoftInputMode="adjustResize"`, so the Android keyboard-tracking toolbar will not behave
 correctly there until it does. Verify that before concluding a host/IME bug lives in this library.
 
+The sample carries a fifth field for the built-in keypad (de-DE, `useBuiltInKeypad = true`), which is
+how that path was verified on the iOS simulator. **The Android keypad path is compile-verified only** —
+no emulator or device was available, so `readOnly = true` suppressing the IME while keeping focus, the
+caret and the focus-loss commit is unconfirmed on a real Android runtime. That is the first thing to
+check there.
+
+A trap when iterating on iOS: publishing to mavenLocal is not enough. The `:shared` framework has to be
+relinked (`./gradlew :shared:linkDebugFrameworkIosSimulatorArm64 --refresh-dependencies` in the `cmp`
+repo) *and* the running app stopped and relaunched, or `build_run_sim` will report success in a few
+seconds while the simulator keeps executing the previous build. To check which code is actually running,
+grep the installed binary — Kotlin/Native stores string literals as **UTF-16LE**, so a plain
+`grep`/`strings` for a literal finds nothing and looks like proof the code is missing:
+`python3 -c "d=open(p,'rb').read(); print(d.count('literal'.encode('utf-16-le')))"`.
+
 ## Tests
 
 - `commonTest` uses `FakeLocaleNumberFormatter` (deterministic, no platform APIs) and covers
-  `NumberInputState` and the grouping/offset-mapping transformation.
+  `NumberInputState`, the grouping/offset-mapping transformation, and the keypad's press handlers and
+  enablement rules (`NumberInputKeypadTest` — state-level, no composition).
 - `androidUnitTest` (`AndroidLocaleNumberFormatterTest`, JVM, no device) is the counterweight to that
   fake. The fake models exactly two conventions, `,`/`.` and `.`/`,`, which is an assumption about the
   platform rather than a measurement of it; this suite measures it. It pins that the separators the
@@ -182,4 +229,13 @@ correctly there until it does. Verify that before concluding a host/IME bug live
   real formatter and state machine, and its
   `typing_faster_than_recomposition_still_resolves_the_decimal_point` case drives a real `UITextField`
   with *no* recomposition at all, which is the only way to catch a stale previous-buffer diff.
-- There are no instrumented Android UI tests wired up (`androidUnitTest` above is JVM-only).
+  `IosKeypadSuppressionTest` covers the built-in keypad's UIKit half: that an empty `inputView` is what
+  actually replaces the system keyboard, and that the keypad's Done reaches the same
+  `resignFocus()`/commit path the `UIToolbar`'s Done does. `NumberInputKeypadSemanticsTest` uses
+  Compose's `runComposeUiTest` — the same semantics tree Compose hands the platform accessibility
+  service, run on this target's real simulator — to pin the keypad's button roles and spoken names;
+  see the keypad note under Architecture for why a plain click-action assertion does not catch the
+  defect this guards.
+- There are no instrumented Android UI tests wired up (`androidUnitTest` above is JVM-only), so the
+  built-in keypad's Android half (`readOnly` suppressing the IME) is compile-verified only — see the
+  caveat under "Sample app for end-to-end testing".

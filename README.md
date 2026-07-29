@@ -193,6 +193,7 @@ NumberInputConfig(
     locale = "en-US",            // BCP-47 tag driving separators and parsing
     allowNegative = true,        // false disables ± and clamps a negative seed to 0
     placeholder = "",
+    useBuiltInKeypad = false,    // true swaps the system keyboard for this library's keypad
 )
 ```
 
@@ -203,6 +204,26 @@ is what you want for the Vietnamese đồng:
 NumberInputConfig(significantDigits = 0, locale = "vi-VN", placeholder = "Nhập số tiền")
 // 2500000 renders as 2.500.000, and "," is refused
 ```
+
+### Built-in keypad
+
+`useBuiltInKeypad = true` replaces the system keyboard with a keypad drawn by this library, identical on
+both platforms. Its decimal key shows **this field's** separator rather than the device region's, so a
+de-DE field offers `,` on a US phone instead of a `.` that has to be translated after the fact.
+
+```kotlin
+NumberInputConfig(significantDigits = 2, locale = "de-DE", useBuiltInKeypad = true)
+```
+
+It is off by default deliberately. The system keyboard is what users expect, and it brings dictation,
+paste and every accessibility affordance the OS provides; the keypad trades those for a correct decimal
+key and identical behaviour across platforms. Keys grey out exactly when a press would be refused — the
+decimal key once a separator is present or on an integer-only field, digits once the fraction is full.
+
+Wrap the screen in `NumberInputHost` when using it. The keypad is Compose on both platforms, so unlike
+the default iOS toolbar it cannot be attached to the system keyboard and needs the host to sit above the
+safe area. Without a host it renders inline beneath the field, which still works but pushes content
+down. The keypad carries its own Clear / ± / Done row, so you never get both it and the toolbar.
 
 ## Styling and localisation
 

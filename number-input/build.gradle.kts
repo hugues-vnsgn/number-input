@@ -1,4 +1,5 @@
 import com.vanniktech.maven.publish.SonatypeHost
+import org.jetbrains.compose.ExperimentalComposeLibrary
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -37,6 +38,17 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+        }
+        iosTest.dependencies {
+            // ui-test's runComposeUiTest runs the same semantics tree Compose hands to the platform
+            // accessibility service, on the real simulator this target already runs on. That is what
+            // catches a key publishing as bare text instead of a button, which a plain state test
+            // cannot see at all: onTextChange never runs, so `rawText` and `value` stay correct while
+            // the key is unreachable to a screen reader or a UI test. Android-side coverage would need
+            // Robolectric, which this repo does not otherwise depend on; iOS is also where the defect
+            // this guards against was found.
+            @OptIn(ExperimentalComposeLibrary::class)
+            implementation(compose.uiTest)
         }
     }
 }

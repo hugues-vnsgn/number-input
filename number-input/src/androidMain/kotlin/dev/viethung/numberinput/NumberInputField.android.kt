@@ -89,6 +89,11 @@ internal actual fun PlatformNumberInputField(
                     }
                 },
             enabled = enabled,
+            // With the built-in keypad the field takes no direct text input: read-only keeps it
+            // focusable, and therefore keeps the caret and the focus-loss commit path, while stopping
+            // the IME from opening behind the keypad. `enabled = false` would have suppressed the
+            // keyboard too, but it also refuses focus, which would take the commit path with it.
+            readOnly = state.config.useBuiltInKeypad,
             singleLine = true,
             textStyle = TextStyle(
                 color = style.textColor.copy(alpha = style.textColor.alpha * contentAlpha),
@@ -122,15 +127,17 @@ internal actual fun PlatformNumberInputField(
             },
         )
 
-        // Fallback only — with a host, the toolbar is drawn there instead, pinned to the keyboard.
+        // Fallback only — with a host, this is drawn there instead: the toolbar pinned to the
+        // keyboard, or the keypad above the safe area.
         if (showToolbar && host == null) {
-            NumberInputToolbarBar(
-                state = state,
-                style = style,
-                // Dropping focus runs the same commit path as tapping away, so there is one commit
-                // route rather than two that can drift.
-                onDone = { focusManager.clearFocus() },
-            )
+            // Dropping focus runs the same commit path as tapping away, so there is one commit route
+            // rather than two that can drift.
+            val onDone = { focusManager.clearFocus() }
+            if (state.config.useBuiltInKeypad) {
+                NumberInputKeypad(state = state, style = style, onDone = onDone)
+            } else {
+                NumberInputToolbarBar(state = state, style = style, onDone = onDone)
+            }
         }
     }
 }
