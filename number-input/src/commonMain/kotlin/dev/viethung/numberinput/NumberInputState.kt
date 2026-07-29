@@ -147,8 +147,41 @@ class NumberInputState(
             interpretWholeNumber(rawInput, decSep, formatter.groupingSeparator(config.locale))
                 ?.let { dropRedundantFractionZeros(it, decSep) }
         } else {
+            if (inserted != null && !isNumericKeystroke(inserted.text, decSep)) return null
             substituteTypedDecimal(rawInput, rawText)
         }
+    }
+
+    /**
+     * True when a single inserted character is one a number can contain: a digit, either decimal key,
+     * or the minus sign.
+     *
+     * A whole number that arrives at once is already validated by [interpretWholeNumber], so a pasted
+     * "abc" is refused. A *typed* letter was not, and reached `rawText` verbatim — a numeric field
+     * briefly displaying a letter, and `rawText` holding text that is not canonical numeric text,
+     * which is the invariant it exists to keep.
+     *
+     * What the value did next depended on the formatter, which is how this stayed hidden. Real
+     * `DecimalFormat` parses a leading number and ignores the trailing garbage, so typing "a" after
+     * "12" produced `value = 12.0` for `rawText = "12a"`; the deterministic test double returns null
+     * for the same text, leaving the previous value in place, so `commonTest` saw nothing wrong.
+     * Neither outcome is right, and the two paths disagreeing on identical characters is the same
+     * defect shape as passing a paste through unresolved.
+     *
+     * The decimal pad cannot emit a letter, so this needs a hardware keyboard, an autocomplete, or a
+     * one-character paste to reach — all of which the field is handed regardless.
+     *
+     * Minus is permitted anywhere rather than only at the start: where a sign is *valid* is the
+     * parser's business, and mid-buffer text is transient while the user is still typing.
+     */
+    private fun isNumericKeystroke(inserted: String, decimalSeparator: String): Boolean {
+        // Only a single character is judged here; anything longer took the whole-number path, and a
+        // deletion has no insertion to judge.
+        val c = inserted.singleOrNull() ?: return true
+        if (c in '0'..'9' || c == '-') return true
+        // Either decimal key, whichever the device region emits, plus this locale's own separator for
+        // the regions whose key is neither — Arabic-Indic "٫", say, which arrives already correct.
+        return c.toString() in DECIMAL_KEY_CANDIDATES || c.toString() == decimalSeparator
     }
 
     /**

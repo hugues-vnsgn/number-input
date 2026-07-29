@@ -73,6 +73,39 @@ class NumberInputStateTest {
         assertEquals("10.00", s.rawText)
     }
 
+    /**
+     * A whole number arriving at once is validated before it is stored, so a pasted "abc" is refused.
+     * A *typed* character has to be too, or the two paths disagree on identical text: typing the "a"
+     * of "12a" one key at a time used to store it, leaving a numeric field displaying a letter and
+     * `rawText` holding text that is not canonical numeric text.
+     *
+     * What happened to `value` depended on the formatter, which is why this survived. Real
+     * `DecimalFormat` parses the leading "12" and ignores the rest, so the field read 12.0 for a
+     * buffer of "12a"; this test double returns null for the same text and leaves the previous value
+     * alone. Refusing the keystroke makes the outcome the same everywhere.
+     */
+    @Test
+    fun onTextChange_refuses_a_typed_character_a_number_cannot_contain() {
+        val s = makeState()
+        s.onFocusChanged(true)
+        "12".forEach { s.onTextChange(s.rawText + it) }
+
+        s.onTextChange("12a")
+
+        assertEquals("12", s.rawText)
+        assertEquals(12.0, s.value)
+    }
+
+    @Test
+    fun onTextChange_still_accepts_digits_signs_and_either_decimal_key() {
+        for (key in listOf("5", "-", ".", ",")) {
+            val s = makeState()
+            s.onFocusChanged(true)
+            s.onTextChange(key)
+            assertEquals(1, s.rawText.length, "'$key' should reach the buffer")
+        }
+    }
+
     @Test
     fun toggleSign_flips_value() {
         val s = makeState(initialValue = 42.5)

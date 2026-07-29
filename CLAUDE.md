@@ -162,6 +162,18 @@ correctly there until it does. Verify that before concluding a host/IME bug live
 
 - `commonTest` uses `FakeLocaleNumberFormatter` (deterministic, no platform APIs) and covers
   `NumberInputState` and the grouping/offset-mapping transformation.
+- `androidUnitTest` (`AndroidLocaleNumberFormatterTest`, JVM, no device) is the counterweight to that
+  fake. The fake models exactly two conventions, `,`/`.` and `.`/`,`, which is an assumption about the
+  platform rather than a measurement of it; this suite measures it. It pins that the separators the
+  fake hard-codes are what the JDK reports for en-US/de-DE/vi-VN, runs the whole-number and keystroke
+  paths through the real `DecimalFormat`, and covers locales the fake cannot express — fr-FR grouping
+  is U+202F (narrow no-break space) and de-CH is U+2019, neither of them typeable. Non-ASCII
+  separators are written as `\u` escapes in that file on purpose: NNBSP against an ordinary space
+  decides whether a case resolves or is refused, and no reader can tell them apart by eye.
+  It also pins the documented limits as tests so they stay visible (a plain space in fr-FR, an ASCII
+  apostrophe in de-CH, and en-IN lakh grouping are all refused), and the reason resolving must precede
+  parsing: handed `1234.5` directly, a de-DE `DecimalFormat` returns **12345.0**, reading `.` as its
+  own grouping separator.
 - `iosTest` runs on a simulator and covers only what a Compose test cannot reach: selector dispatch,
   key-value coding (`accessibilityIdentifier` must be set via KVC — casting to
   `UIAccessibilityIdentificationProtocol` compiles but throws at runtime), and the real `UIToolbar`.
@@ -170,4 +182,4 @@ correctly there until it does. Verify that before concluding a host/IME bug live
   real formatter and state machine, and its
   `typing_faster_than_recomposition_still_resolves_the_decimal_point` case drives a real `UITextField`
   with *no* recomposition at all, which is the only way to catch a stale previous-buffer diff.
-- There are no instrumented Android UI tests wired up.
+- There are no instrumented Android UI tests wired up (`androidUnitTest` above is JVM-only).
