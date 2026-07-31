@@ -16,6 +16,12 @@ import androidx.compose.ui.Modifier
  *
  * This overload owns its [NumberInputState] internally. To drive the field from your own ViewModel
  * or DI graph, construct a [NumberInputState] yourself and use the other overload.
+ *
+ * [onPrevious] and [onNext] add field-navigation buttons at the left of the toolbar row; null hides
+ * each. **Compose row only.** iOS's system-keyboard path builds a native `UIToolbar`, and this
+ * library exposes no way to move focus into another `UITextField` — so on iOS these are usable only
+ * with [NumberInputConfig.useBuiltInKeypad] and a [NumberInputHost], where the caller drives focus
+ * itself.
  */
 @Composable
 fun NumberInputField(
@@ -25,6 +31,8 @@ fun NumberInputField(
     config: NumberInputConfig = NumberInputConfig(),
     style: NumberInputStyle = NumberInputStyle(),
     enabled: Boolean = true,
+    onPrevious: (() -> Unit)? = null,
+    onNext: (() -> Unit)? = null,
 ) {
     // Keyed on config so a changed locale / digit cap rebuilds the state rather than silently
     // keeping stale formatting. Unlike viewModel(key=), remember is per-call-site, so two fields
@@ -46,12 +54,23 @@ fun NumberInputField(
     // which is what stops the outward/inward binding loop.
     LaunchedEffect(value) { state.syncExternalValue(value) }
 
-    NumberInputField(state = state, modifier = modifier, style = style, enabled = enabled)
+    NumberInputField(
+        state = state,
+        modifier = modifier,
+        style = style,
+        enabled = enabled,
+        onPrevious = onPrevious,
+        onNext = onNext,
+    )
 }
 
 /**
  * Overload for a caller-owned [state] — hoist it into a ViewModel, a Koin-provided holder, or
  * wherever your architecture keeps screen state.
+ *
+ * [onPrevious] and [onNext] add field-navigation buttons at the left of the toolbar row; null hides
+ * each. **Compose row only** — see the other overload for why iOS's system-keyboard path cannot use
+ * them.
  */
 @Composable
 fun NumberInputField(
@@ -59,12 +78,16 @@ fun NumberInputField(
     modifier: Modifier = Modifier,
     style: NumberInputStyle = NumberInputStyle(),
     enabled: Boolean = true,
+    onPrevious: (() -> Unit)? = null,
+    onNext: (() -> Unit)? = null,
 ) {
     PlatformNumberInputField(
         state = state,
         modifier = modifier,
         style = style,
         enabled = enabled,
+        onPrevious = onPrevious,
+        onNext = onNext,
     )
 }
 
@@ -78,4 +101,6 @@ internal expect fun PlatformNumberInputField(
     modifier: Modifier,
     style: NumberInputStyle,
     enabled: Boolean,
+    onPrevious: (() -> Unit)?,
+    onNext: (() -> Unit)?,
 )

@@ -15,4 +15,15 @@ object NumberInputToolbarRules {
     /** "±" is offered only when negatives are allowed and there is a value to negate. */
     fun signEnabled(allowNegative: Boolean, value: Double?): Boolean =
         allowNegative && value != null
+
+    /**
+     * "±" is *shown* only when negatives are allowed at all.
+     *
+     * Distinct from [signEnabled], which asks whether it is usable right now. With
+     * `allowNegative = false` the button could never become enabled for the life of the field, so it
+     * is omitted rather than greyed. The keypad's decimal key on an integer-only field is the
+     * opposite call, deliberately: greying it says "this field takes no fraction", where hiding it
+     * would leave a hole in a fixed grid.
+     */
+    fun signVisible(allowNegative: Boolean): Boolean = allowNegative
 }

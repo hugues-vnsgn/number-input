@@ -15,6 +15,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
@@ -48,6 +49,8 @@ internal actual fun PlatformNumberInputField(
     modifier: Modifier,
     style: NumberInputStyle,
     enabled: Boolean,
+    onPrevious: (() -> Unit)?,
+    onNext: (() -> Unit)?,
 ) {
     val transformation = remember(state.config.locale) {
         val formatter = newLocaleNumberFormatter()
@@ -80,9 +83,20 @@ internal actual fun PlatformNumberInputField(
     // when focus arrived — flip the device to light mid-edit and the keypad kept its dark keys, because
     // this composable is no longer the one deciding. The host resolves what it draws, against the
     // appearance at the time it draws it.
-    DisposableEffect(host, showToolbar, state, style) {
+    // Read through rememberUpdatedState so a caller's freshly-allocated lambda does not have to be an
+    // effect key — keying on it would restart the effect, and republish, on every recomposition.
+    val currentOnPrevious by rememberUpdatedState(onPrevious)
+    val currentOnNext by rememberUpdatedState(onNext)
+
+    DisposableEffect(host, showToolbar, state, style, onPrevious != null, onNext != null) {
         if (host != null && showToolbar) {
-            host.show(state, style) { focusManager.clearFocus() }
+            host.show(
+                state = state,
+                style = style,
+                onPrevious = if (currentOnPrevious != null) ({ currentOnPrevious?.invoke() }) else null,
+                onNext = if (currentOnNext != null) ({ currentOnNext?.invoke() }) else null,
+                onDone = { focusManager.clearFocus() },
+            )
         }
         onDispose { host?.hide(state) }
     }
@@ -153,10 +167,23 @@ internal actual fun PlatformNumberInputField(
             // Dropping focus runs the same commit path as tapping away, so there is one commit route
             // rather than two that can drift.
             val onDone = { focusManager.clearFocus() }
+            // No leadingAccessory here: that slot is the host's, and there is no host on this path.
             if (state.config.useBuiltInKeypad) {
-                NumberInputKeypad(state = state, style = resolvedStyle, onDone = onDone)
+                NumberInputKeypad(
+                    state = state,
+                    style = resolvedStyle,
+                    onDone = onDone,
+                    onPrevious = onPrevious,
+                    onNext = onNext,
+                )
             } else {
-                NumberInputToolbarBar(state = state, style = resolvedStyle, onDone = onDone)
+                NumberInputToolbarBar(
+                    state = state,
+                    style = resolvedStyle,
+                    onDone = onDone,
+                    onPrevious = onPrevious,
+                    onNext = onNext,
+                )
             }
         }
     }

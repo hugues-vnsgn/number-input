@@ -8,6 +8,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -66,6 +67,8 @@ internal actual fun PlatformNumberInputField(
     modifier: Modifier,
     style: NumberInputStyle,
     enabled: Boolean,
+    onPrevious: (() -> Unit)?,
+    onNext: (() -> Unit)?,
 ) {
     // Resolved once, here — the composable frame — because configureInputViews/buildToolbar/applyStyle
     // below all run inside UIKitView's `update`, which is not @Composable and could not call
@@ -92,11 +95,22 @@ internal actual fun PlatformNumberInputField(
     // The *unresolved* style goes into the host, for the same reason the Android field does this: the
     // host retains its request past focus loss to animate the keypad's exit, and a style resolved here
     // would be frozen at whatever appearance held when focus arrived. The host resolves what it draws.
-    DisposableEffect(host, showKeypad, state, style) {
+    // Read through rememberUpdatedState so a caller's freshly-allocated lambda does not have to be an
+    // effect key — keying on it would restart the effect, and republish, on every recomposition.
+    val currentOnPrevious by rememberUpdatedState(onPrevious)
+    val currentOnNext by rememberUpdatedState(onNext)
+
+    DisposableEffect(host, showKeypad, state, style, onPrevious != null, onNext != null) {
         if (host != null && showKeypad) {
-            // Same dismissal route as the UIToolbar's Done: resigning first responder runs
-            // textFieldDidEndEditing, which commits. One commit path on both keyboards.
-            host.show(state, style) { coordinator.resignFocus() }
+            host.show(
+                state = state,
+                style = style,
+                onPrevious = if (currentOnPrevious != null) ({ currentOnPrevious?.invoke() }) else null,
+                onNext = if (currentOnNext != null) ({ currentOnNext?.invoke() }) else null,
+                // Same dismissal route as the UIToolbar's Done: resigning first responder runs
+                // textFieldDidEndEditing, which commits. One commit path on both keyboards.
+                onDone = { coordinator.resignFocus() },
+            )
         }
         onDispose { host?.hide(state) }
     }
@@ -332,11 +346,22 @@ internal class NumberInputCoordinator : NSObject(), UITextFieldDelegateProtocol 
             action = NSSelectorFromString("doneTapped"),
         ).apply { identify(TAG_DONE) }
 
-        toolbar.setItems(listOf(clear, sign, spacer, done), animated = false)
+        // Same rule the Compose row applies: a button that can never become enabled is omitted rather
+        // than greyed. Expressible here because dropping a UIBarButtonItem needs no custom view —
+        // unlike the pill/filled chrome, which stays Compose-only so this accessory keeps the system
+        // look. Order matches the Compose row: ± then Clear.
+        val showSign = NumberInputToolbarRules.signVisible(state?.config?.allowNegative != false)
+        val items = buildList {
+            if (showSign) add(sign)
+            add(clear)
+            add(spacer)
+            add(done)
+        }
+        toolbar.setItems(items, animated = false)
         toolbar.sizeToFit()
 
         clearItem = clear
-        signItem = sign
+        signItem = if (showSign) sign else null
         return toolbar
     }
 

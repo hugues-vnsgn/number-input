@@ -12,6 +12,7 @@ import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -159,6 +160,40 @@ class NumberInputKeypadSemanticsTest {
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
             .assertContentDescriptionEquals(style.keypad.backspaceContentDescription)
         onAllNodesWithContentDescription(style.keypad.backspaceContentDescription).assertCountEquals(1)
+    }
+
+    /**
+     * ± is omitted rather than greyed when negatives are locked, so it must not resolve at all. The
+     * decimal key on an integer-only field is the opposite call and is asserted above — the two are
+     * deliberately different, and a single "unusable controls are hidden" reading of either would be
+     * wrong.
+     */
+    @Test
+    fun the_sign_action_is_absent_from_the_row_when_negatives_are_locked() = runComposeUiTest {
+        val s = NumberInputState(
+            formatter = FakeLocaleNumberFormatter(),
+            config = NumberInputConfig(allowNegative = false, useBuiltInKeypad = true),
+        ).also { it.onFocusChanged(true) }
+        setContent { NumberInputKeypad(state = s, style = NumberInputStyle(), onDone = {}) }
+
+        onAllNodesWithTag(TAG_SIGN).assertCountEquals(0)
+        onNodeWithTag(TAG_CLEAR).assertHasClickAction()
+        onNodeWithTag(TAG_DONE).assertHasClickAction()
+    }
+
+    /** The three new accessory elements appear only when something supplies them. */
+    @Test
+    fun the_hint_and_navigation_buttons_appear_only_when_supplied() = runComposeUiTest {
+        val s = state()
+        val style = NumberInputStyle(
+            toolbar = NumberInputToolbarStyle(hint = "Chargeable weight · KG"),
+        )
+        setContent { NumberInputKeypad(state = s, style = style, onDone = {}, onNext = {}) }
+
+        onNodeWithTag(TAG_TOOLBAR_HINT).assertExists()
+        onNodeWithTag(TAG_TOOLBAR_NEXT).assertHasClickAction()
+        onAllNodesWithTag(TAG_TOOLBAR_PREVIOUS).assertCountEquals(0)
+        onAllNodesWithTag(TAG_TOOLBAR_LOGO).assertCountEquals(0)
     }
 
     /** Pressing a disabled key through the tree must be a no-op, matching what the rules promise. */
