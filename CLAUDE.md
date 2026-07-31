@@ -123,8 +123,35 @@ animate from on the next open. Because the published height now interpolates, th
 on. The iOS field's `BringIntoViewRequester` keys on the target for exactly this reason; keying on the
 animating value re-issues the scroll every frame.
 
-**Dark mode** covers only the five colours the library draws itself (the keypad's three, the toolbar
-row's two). They default to `Color.Unspecified` and `resolveThemedColors` substitutes a light or dark
+**Styling is three objects, not one** (2.0.0). Field properties stay on `NumberInputStyle`; the toolbar
+row's live on `NumberInputToolbarStyle`, the keypad's on `NumberInputKeypadStyle`. The split exists
+because reproducing a real design spec needed ~20 more tokens and 45 flat parameters would have been
+unreadable — see the migration table in the README.
+
+A key's appearance is **four `NumberInputKeyStyle` objects** — `restKey`, `utilityKey`, `pressedKey`,
+`disabledKey` — one per swatch in a typical spec rather than a role×state matrix, because pressed and
+disabled look the same whichever key is in them. Two rules decide what is drawn, and conflating them is
+the easy mistake: *role fallback* (`fallingBackTo`) runs once at resolution and fills `utilityKey` from
+`restKey`, colours **and** geometry; *state merge* (`mergedWithState`) runs at draw time and contributes
+**colours only**. Geometry stays with the role deliberately — an integer-only field disables its decimal
+key for the field's whole life, so a disabled state carrying geometry would strand that one key centred
+at the digit size while every neighbour kept the utility treatment. `shadowColor` is outside the merge
+entirely: the lip is a resting affordance, and a pressed key that keeps one does not read as pressed.
+
+The governing constraint for every new token is that **an unstyled keypad renders exactly as 1.x did**.
+That is why the utility key falls back to the rest key, why the lip defaults to absent, and why
+`disabledKey`'s colours are the one thing `resolveThemedColors` deliberately does *not* substitute —
+unset there means "multiply by `disabledAlpha`", which is what 1.x drew. `NumberInputStyleResolveTest`
+pins all three. The single exception is the pressed state, which gets a themed default because 1.x gave
+a held key no feedback at all.
+
+Two drawing details are load-bearing. The lip is `drawBehind`, not `Modifier.shadow`: a `0 1px 0` spec
+is a hard offset edge with no blur or spread, which an elevation shadow cannot produce. And `clickable`
+takes `indication = null`, because the pressed style *is* the indication — a default ripple would draw a
+second, un-styleable one over it.
+
+**Dark mode** covers only the colours the library draws itself (the keypad's and the toolbar row's).
+They default to `Color.Unspecified` and `resolveThemedColors` substitutes a light or dark
 palette for whichever were left unset. `Color.Unspecified` rather than a nullable `Color?` is what makes
 an explicit `Color.Transparent` a real choice instead of another kind of absence — `Color.takeOrElse`
 falls back on `Unspecified` only. The field's own colours keep their literal defaults: a consumer's
@@ -155,6 +182,40 @@ dropping any one reopens the tree: `Role.Button` and `onClickLabel` on `clickabl
 only `assertHasClickAction()` on the tagged node is not enough, since the tag sits on the `Box` and that
 assertion passes against the broken code too; the test has to check the *same* node also carries the
 role and the spoken name, and that the glyph text is unreachable by `onAllNodesWithText`.
+
+**Backspace hold-to-repeat** (400 ms, then a delete every 80 ms) sits next to that invariant and nearly
+broke it twice. Two facts about pointer dispatch decide the whole implementation, and both were found on
+a simulator rather than by reading:
+
+- The hold detector must sit **inside** `clickable`, not alongside it. Pointer events reach the
+  innermost node first on the main pass, so a `pointerInput` applied before `clickable` — the natural
+  reading of "add a gesture to this key" — never sees a down at all. A real three-second hold produced
+  no repeat whatsoever in that arrangement, which looks exactly like a timing bug and is not one. `Key`
+  therefore takes a `holdGesture: Modifier` applied *after* its own `clickable`.
+- Moving it inside then inverts the problem: the detector consumes the touch, so `clickable`'s `onClick`
+  stops firing for real taps. The tap therefore lives in the detector too (`onTap`), and `clickable`'s
+  `onClick` becomes the **accessibility-activation** path — VoiceOver fires the semantics action, not a
+  pointer event. Both call one `deleteOnce`, so they cannot drift, and `clickable` still supplies
+  `Role.Button`, the click action and the spoken name, which is why the semantics tree is unchanged.
+
+`repeatFired` stops the release landing one extra delete: with `onLongPress` unset, `detectTapGestures`
+reports a tap on *any* release however long the hold. It is read on tap and cleared on the *next* press,
+which is deterministic; clearing it on release would race that tap. The repeat is scoped to the gesture
+(`coroutineScope` inside `onPress`) rather than launched on the composition, so it cannot outlive the
+pointer. `NumberInputKeypadBehaviourTest` drives all of this through `runComposeUiTest` with
+`mainClock.autoAdvance = false`, which is how the timings are pinned without a `kotlinx-coroutines-test`
+dependency this module deliberately does not carry.
+
+Haptics need **no `expect`/`actual`**: CMP 1.9.0's iOS target already implements `HapticFeedback`
+(`CupertinoHapticFeedback`, over `UIImpactFeedbackGenerator`), so `LocalHapticFeedback` works straight
+from `commonMain`. A held backspace ticks once, at the threshold — at 80 ms intervals a tick per delete
+is a continuous buzz, and the platform generators are not built to be driven that fast.
+
+**Visibility and enablement are different questions**, and the library now answers them differently for
+two controls on purpose. `allowNegative = false` **hides** ± (`NumberInputToolbarRules.signVisible`), on
+the Compose row and the native `UIToolbar` alike, because it could never become enabled for the life of
+the field. An integer-only field **disables** its decimal key instead, because hiding it would leave a
+hole in a fixed grid. Anyone "tidying" these into one rule will break one of them.
 
 **Formatting (`LocaleNumberFormatter`)** is a public, injectable interface with an `expect fun
 newLocaleNumberFormatter()` factory — `DecimalFormat` on Android, `NSNumberFormatter` on iOS, both
@@ -297,6 +358,29 @@ separator translation survives a "." that came from the *system* keyboard, and t
 Its toolbar colours are deliberately left unset, so it doubles as the light/dark palette check. The tab
 row scrolls horizontally now; four buttons do not fit a phone width and the fourth was clipped rather
 than wrapped.
+
+A fourth tab, `OFNumpadSampleScreen` (`tabOFNumpad`), rebuilds the BFSOne OFNumpad spec's in-context
+frame from `numpad-design/OFNumpad Spec.html`. It is the proof that a real design is reachable through
+public parameters alone: every olive value lives in the sample's `OFNumpadTokens.kt`, none in the
+library. Its Amount field is `significantDigits = 0` (the spec's integer-VND rule), so the decimal key
+shows the *disabled* swatch without contriving anything, and its VAT field sets `allowNegative = false`,
+which removes ± and produces the spec's Quantity bar variant. Between them the two fields put all four
+key swatches and both bar variants on one screen.
+
+Note the tab row now needs **two** swipes' worth of scrolling to reach it, and `tabOFNumpad` sits off
+screen at x≈440 on a 402pt device until you do — `describe-ui` will list it with an off-screen frame,
+which is not a layout bug.
+
+**Measure parity from `describe-ui` frames and pixel samples, not from the MCP screenshot.** That
+screenshot comes back scaled (368×800 for a 402×874 device), so nothing measured on it is in dp. Use
+`xcrun simctl io <udid> screenshot --type=png` for a true 3× capture and sample colours directly; the
+accessibility frames are already in points and compare 1:1 with the spec's dp. Note also that a key's
+accessibility frame is its *face* (52dp), not its face plus lip (53dp) — the lip is drawn outside the
+padded region the click target occupies, which is correct and will otherwise read as a 1dp error.
+
+The OFNumpad screen sizes its fields explicitly (`fillMaxWidth().height(48.dp)`). Without that the iOS
+`UIKitView` collapses to the width of its own text — it has no intrinsic width worth having, and the
+symptom is a field rendered as a few points wide rather than an error.
 
 The sample's light/dark toggle moves **the app's** Material colours only. The keypad reads
 `isSystemInDarkTheme()` directly, so it follows the OS and not that button — deliberately, since it

@@ -66,7 +66,7 @@ dependencyResolutionManagement {
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("dev.viethung:number-input:1.0.0")
+            implementation("dev.viethung:number-input:2.0.0")
         }
     }
 }
@@ -78,7 +78,7 @@ kotlin {
 ```toml
 # gradle/libs.versions.toml
 [versions]
-numberInput = "1.0.0"
+numberInput = "2.0.0"
 
 [libraries]
 number-input = { module = "dev.viethung:number-input", version.ref = "numberInput" }
@@ -263,13 +263,19 @@ NumberInputStyle(
     textSize = 18.sp,
     borderColor = MaterialTheme.colorScheme.outline,
     cornerRadius = 8.dp,
-    toolbarBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
-    toolbarTint = MaterialTheme.colorScheme.primary,
-    clearLabel = "Xoá",          // defaults are English
-    signLabel = "±",
-    doneLabel = "Xong",
+    toolbar = NumberInputToolbarStyle(
+        backgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+        tint = MaterialTheme.colorScheme.primary,
+        clearLabel = "Xoá",      // defaults are English
+        signLabel = "±",
+        doneLabel = "Xong",
+    ),
 )
 ```
+
+Styling is grouped into three objects: the field's own properties sit on `NumberInputStyle`, the
+Clear / ± / Done row on `NumberInputToolbarStyle`, and the built-in keypad on
+`NumberInputKeypadStyle`. See [Migrating to 2.0.0](#migrating-to-200) if you are coming from 1.x.
 
 > The toolbar labels default to English and will ship to every user that way. Pass localised strings
 > from your own resources.
@@ -279,26 +285,94 @@ NumberInputStyle(
 Most of `NumberInputStyle` defaults to neutral literals, because the field is yours to theme — this
 library depends on `compose.foundation`, not Material, so it has no theme to read.
 
-The five colours the library draws *itself* are the exception: the keypad's background, key background
-and key text, and the toolbar row's background and tint. There is no design system for a consumer to
-bring for a stand-in system keyboard, so those default to `Color.Unspecified` and resolve against the
-device's light/dark appearance:
+The colours the library draws *itself* are the exception: the keypad's background and its keys'
+fills and glyphs, and the toolbar row's background and tint. There is no design system for a consumer
+to bring for a stand-in system keyboard, so those default to `Color.Unspecified` and resolve against
+the device's light/dark appearance:
 
 ```kotlin
 NumberInputStyle()                                  // keypad and toolbar follow the OS appearance
-NumberInputStyle(keyBackgroundColor = Color.White)   // pinned white in both appearances
+NumberInputStyle(                                   // key fill pinned white in both appearances
+    keypad = NumberInputKeypadStyle(
+        restKey = NumberInputKeyStyle(backgroundColor = Color.White),
+    ),
+)
 ```
 
-Setting any of the five opts that one colour out and leaves the rest following the appearance. This is
+Setting any of them opts that one colour out and leaves the rest following the appearance. This is
 per-colour, not a mode switch. `Color.Transparent` counts as a deliberate choice; only
 `Color.Unspecified` — the default — is treated as unset.
 
 They follow the **device**, not the `MaterialTheme` around them, matching the system keyboard they stand
 in for. If your app is dark-only or light-only against the platform setting, set the five explicitly.
 
-The style surface is deliberately small: every property maps to *both* a Compose `BasicTextField` and
-a UIKit `UITextField`. Anything that would work on only one platform — `FontFamily`, gradients,
-arbitrary shapes, `letterSpacing` — is left out rather than accepted and silently ignored.
+The **field's** style surface is deliberately small: every property on `NumberInputStyle` itself maps
+to *both* a Compose `BasicTextField` and a UIKit `UITextField`. Anything that would work on only one
+platform — gradients, arbitrary shapes, `letterSpacing` — is left out rather than accepted and silently
+ignored. That is also why there is no `fontFamily` on `NumberInputStyle`: a Compose `FontFamily`
+cannot cross into UIKit, so it would style the field on Android and do nothing on iOS.
+
+The keypad and the toolbar row are Compose on *both* platforms, so they are not bound by that rule —
+`NumberInputKeypadStyle.fontFamily` and `NumberInputToolbarStyle.fontFamily` do exist, and work
+everywhere. You bundle and register the font; the library only accepts the family it is handed.
+
+## Migrating to 2.0.0
+
+2.0.0 groups styling into three objects. The field's own properties stay on `NumberInputStyle`; the
+eight keypad and toolbar properties move. Nothing renders differently — an unstyled keypad in 2.0.0 is
+pixel-identical to 1.x. The change is mechanical:
+
+| 1.x | 2.0.0 |
+|---|---|
+| `toolbarBackgroundColor` | `toolbar.backgroundColor` |
+| `toolbarTint` | `toolbar.tint` |
+| `clearLabel` / `signLabel` / `doneLabel` | `toolbar.clearLabel` / `.signLabel` / `.doneLabel` |
+| `keypadBackgroundColor` | `keypad.backgroundColor` |
+| `keyBackgroundColor` | `keypad.restKey.backgroundColor` |
+| `keyTextColor` | `keypad.restKey.contentColor` |
+| `keyTextSize` | `keypad.restKey.textSize` |
+| `keyHeight` / `keyCornerRadius` | `keypad.keyHeight` / `keypad.keyCornerRadius` |
+| `backspaceLabel` | `keypad.backspaceLabel` |
+| `backspaceContentDescription` | `keypad.backspaceContentDescription` |
+| `decimalContentDescription` | `keypad.decimalContentDescription` |
+
+`disabledAlpha` stays where it is.
+
+**One behaviour change.** With `allowNegative = false`, the ± button is now **omitted** from the bar
+rather than shown permanently greyed — on the Compose row and iOS's native `UIToolbar` alike. A button
+that can never become enabled for the life of the field is dead weight. If a UI test asserted on a
+disabled `numberInput.toolbar.toggleSign`, it must now assert absence. (The keypad's decimal key on an
+integer-only field is deliberately the opposite call: it stays visible and greyed, because hiding it
+would leave a hole in a fixed grid.)
+
+The action order also follows ± → Clear → Done now, on both platforms. Every test tag still resolves;
+only the left-to-right positions moved.
+
+**Haptics are on by default.** The built-in keypad ticks on each accepted press. Set
+`NumberInputConfig(keypadHaptics = false)` to opt out.
+
+### What 2.0.0 adds
+
+Enough styling surface to reproduce a real design spec without the library carrying any brand value:
+
+- **Per-key roles and states.** `keypad.restKey`, `utilityKey`, `pressedKey` and `disabledKey` are
+  four `NumberInputKeyStyle` objects — one per swatch in a typical spec. Unset, `utilityKey` falls back
+  to `restKey` and `disabledKey` falls back to dimming by `disabledAlpha`, which is 1.x's rendering.
+  Pressed and disabled contribute **colours only**; geometry always stays with the role, so a
+  bottom-aligned separator stays bottom-aligned in every state.
+- **Grid metrics** (`contentPadding`, `keySpacing`), a **hard shadow lip** (`shadowColor`,
+  `shadowHeight` — an offset edge, not an elevation shadow), `fontFamily`, `tabularFigures`, and an
+  optional `backspaceIcon` for designs whose brand font lacks U+232B.
+- **Accessory-bar chrome**: `NumberInputToolbarActionStyle` for the `action`, `done` and `navigation`
+  buttons, plus bar `height`, `contentPadding`, `itemSpacing`, `bottomBorderColor` and label
+  typography. Every default is "no chrome", i.e. the bare tinted text 1.x drew.
+- **A centred `hint`** on the toolbar style, a **`leadingAccessory`** slot on `NumberInputHost` for a
+  brand mark, and **`onPrevious` / `onNext`** field-navigation callbacks on `NumberInputField`.
+- **Hold-to-repeat backspace**: 400 ms, then a delete every 80 ms until release or an empty buffer.
+
+`onPrevious` / `onNext` render in the **Compose** row only. iOS's system-keyboard path builds a native
+`UIToolbar`, and this library exposes no way to move focus into another `UITextField` — so on iOS they
+are usable with `useBuiltInKeypad` and a host, where you drive focus yourself.
 
 ## Custom formatting
 
