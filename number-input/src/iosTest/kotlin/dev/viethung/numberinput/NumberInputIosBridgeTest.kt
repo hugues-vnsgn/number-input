@@ -25,9 +25,11 @@ import kotlin.test.assertTrue
 class NumberInputIosBridgeTest {
 
     private fun style() = NumberInputStyle(
-        clearLabel = "Xoá",
-        signLabel = "±",
-        doneLabel = "Xong",
+        toolbar = NumberInputToolbarStyle(
+            clearLabel = "Xoá",
+            signLabel = "±",
+            doneLabel = "Xong",
+        ),
     )
 
     private fun identifierOf(item: Any): String? = (item as NSObject).identifier()
