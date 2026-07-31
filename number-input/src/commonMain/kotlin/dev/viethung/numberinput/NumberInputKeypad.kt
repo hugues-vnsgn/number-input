@@ -4,6 +4,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -18,7 +19,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
@@ -27,6 +30,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -37,6 +43,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * The library's own keypad, drawn in Compose and shared by both platforms.
@@ -101,6 +110,28 @@ internal fun NumberInputKeypad(
     }
 }
 
+/** How long backspace must be held before it starts repeating. */
+internal const val BackspaceRepeatDelayMillis = 400L
+
+/** How often it deletes once it is repeating. */
+internal const val BackspaceRepeatIntervalMillis = 80L
+
+/**
+ * Wraps a press so an accepted key ticks.
+ *
+ * Applied at the call site rather than inside [Key] so the held-backspace repeat can delete without
+ * ticking each time — see [BackspaceKey].
+ */
+@Composable
+private fun rememberHapticPress(state: NumberInputState, action: () -> Unit): () -> Unit {
+    val haptics = LocalHapticFeedback.current
+    val enabled = state.config.keypadHaptics
+    return {
+        if (enabled) haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+        action()
+    }
+}
+
 /**
  * One row of keys. Each key is handed a `weight(1f)` modifier from here rather than applying it
  * itself, since `weight` is only available inside the row's own scope.
@@ -137,7 +168,7 @@ private fun DigitKey(
         role = style.keypad.restKey,
         style = style,
         testTag = keypadDigitTag(digit),
-        onClick = { state.pressDigit(digit) },
+        onClick = rememberHapticPress(state) { state.pressDigit(digit) },
         modifier = modifier,
     )
 }
@@ -154,27 +185,82 @@ private fun DecimalKey(state: NumberInputState, style: NumberInputStyle, modifie
         // "." and "," are punctuation: a screen reader may announce the glyph as nothing at all, and
         // the two are indistinguishable spoken even when it does. The label stays the glyph.
         contentDescription = style.keypad.decimalContentDescription,
-        onClick = state::pressDecimalSeparator,
+        onClick = rememberHapticPress(state) { state.pressDecimalSeparator() },
         modifier = modifier,
     )
 }
 
+/**
+ * Backspace, with hold-to-repeat.
+ *
+ * `clickable` is still what gives the key its `Role.Button`, its click action and its spoken name, and
+ * it must stay for that reason alone (see [Key]). But it no longer receives real touches: the hold
+ * detector sits *inside* it and consumes them, so the tap is handled there too. `clickable`'s
+ * `onClick` remains the path an accessibility activation takes — VoiceOver fires the semantics action,
+ * not a pointer event — and both routes call the same [deleteOnce], so they cannot drift.
+ *
+ * `repeatFired` stops the release from landing one more delete on top of the repeats. With
+ * `onLongPress` unset, `detectTapGestures` reports a tap on *any* release, however long the hold. The
+ * flag is read on tap and cleared on the *next* press, which is deterministic — a press always
+ * precedes the tap that follows it, whereas clearing it on release would race that tap.
+ */
 @Composable
 private fun BackspaceKey(state: NumberInputState, style: NumberInputStyle, modifier: Modifier) {
+    val haptics = LocalHapticFeedback.current
+    val hapticsEnabled = state.config.keypadHaptics
+    var repeatFired by remember { mutableStateOf(false) }
+    val enabled = state.backspaceEnabled
+
+    val deleteOnce = {
+        if (hapticsEnabled) haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+        state.pressBackspace()
+    }
+
     Key(
         label = style.keypad.backspaceLabel,
-        enabled = state.backspaceEnabled,
+        enabled = enabled,
         role = style.keypad.utilityKey,
         style = style,
         testTag = TAG_KEYPAD_BACKSPACE,
         // The glyph is a symbol, so it needs a spoken name of its own — a screen reader would
         // otherwise announce the character itself, or nothing.
         contentDescription = style.keypad.backspaceContentDescription,
-        onClick = state::pressBackspace,
+        onClick = deleteOnce,
         modifier = modifier,
         icon = style.keypad.backspaceIcon,
         iconWidth = style.keypad.backspaceIconWidth,
         iconHeight = style.keypad.backspaceIconHeight,
+        holdGesture = Modifier.pointerInput(enabled, state) {
+            if (!enabled) return@pointerInput
+            detectTapGestures(
+                onTap = {
+                    if (repeatFired) repeatFired = false else deleteOnce()
+                },
+                onPress = {
+                    repeatFired = false
+                    // Scoped to the gesture rather than launched on the composition: the repeat then
+                    // cannot outlive the pointer that started it, and it is driven by the same
+                    // coroutine the gesture runs in rather than by whatever the composition sits on.
+                    coroutineScope {
+                        val repeat = launch {
+                            delay(BackspaceRepeatDelayMillis)
+                            // One tick for the whole hold: at the repeat interval a haptic per delete
+                            // is a continuous buzz rather than feedback.
+                            if (hapticsEnabled) {
+                                haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                            }
+                            while (state.backspaceEnabled) {
+                                repeatFired = true
+                                state.pressBackspace()
+                                delay(BackspaceRepeatIntervalMillis)
+                            }
+                        }
+                        tryAwaitRelease()
+                        repeat.cancel()
+                    }
+                },
+            )
+        },
     )
 }
 
@@ -217,6 +303,7 @@ private fun Key(
     icon: ImageVector? = null,
     iconWidth: Dp = 0.dp,
     iconHeight: Dp = 0.dp,
+    holdGesture: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
@@ -269,6 +356,11 @@ private fun Key(
                 indication = null,
                 onClick = onClick,
             )
+            // *After* clickable, deliberately. Pointer events reach the innermost node first on the
+            // main pass, so a hold detector placed before clickable never sees a down — clickable's
+            // own detector has already taken it. Verified: an outer placement produced no repeat at
+            // all, through a real three-second hold.
+            .then(holdGesture)
             .semantics(mergeDescendants = true) {
                 this.contentDescription = contentDescription
                 if (!enabled) disabled()
