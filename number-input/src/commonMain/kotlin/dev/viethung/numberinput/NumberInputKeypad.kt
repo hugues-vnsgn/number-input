@@ -56,7 +56,7 @@ internal fun NumberInputKeypad(
         modifier = modifier
             .fillMaxWidth()
             .testTag(TAG_KEYPAD)
-            .background(style.keypadBackgroundColor),
+            .background(style.keypad.backgroundColor),
     ) {
         NumberInputToolbarBar(state = state, style = style, onDone = onDone)
 
@@ -118,7 +118,7 @@ private fun DecimalKey(state: NumberInputState, style: NumberInputStyle, modifie
         testTag = TAG_KEYPAD_DECIMAL,
         // "." and "," are punctuation: a screen reader may announce the glyph as nothing at all, and
         // the two are indistinguishable spoken even when it does. The label stays the glyph.
-        contentDescription = style.decimalContentDescription,
+        contentDescription = style.keypad.decimalContentDescription,
         onClick = state::pressDecimalSeparator,
         modifier = modifier,
     )
@@ -127,13 +127,13 @@ private fun DecimalKey(state: NumberInputState, style: NumberInputStyle, modifie
 @Composable
 private fun BackspaceKey(state: NumberInputState, style: NumberInputStyle, modifier: Modifier) {
     Key(
-        label = style.backspaceLabel,
+        label = style.keypad.backspaceLabel,
         enabled = state.backspaceEnabled,
         style = style,
         testTag = TAG_KEYPAD_BACKSPACE,
         // The glyph is a symbol, so it needs a spoken name of its own — a screen reader would
         // otherwise announce the character itself, or nothing.
-        contentDescription = style.backspaceContentDescription,
+        contentDescription = style.keypad.backspaceContentDescription,
         onClick = state::pressBackspace,
         modifier = modifier,
     )
@@ -166,9 +166,12 @@ private fun Key(
     val alpha = if (enabled) 1f else style.disabledAlpha
     Box(
         modifier = modifier
-            .height(style.keyHeight)
+            .height(style.keypad.keyHeight)
             .testTag(testTag)
-            .background(style.keyBackgroundColor, RoundedCornerShape(style.keyCornerRadius))
+            .background(
+                style.keypad.restKey.backgroundColor,
+                RoundedCornerShape(style.keypad.keyCornerRadius),
+            )
             .clickable(
                 enabled = enabled,
                 role = Role.Button,
@@ -184,8 +187,10 @@ private fun Key(
         BasicText(
             text = label,
             style = TextStyle(
-                color = style.keyTextColor.copy(alpha = style.keyTextColor.alpha * alpha),
-                fontSize = style.keyTextSize,
+                color = style.keypad.restKey.contentColor.copy(
+                    alpha = style.keypad.restKey.contentColor.alpha * alpha,
+                ),
+                fontSize = style.keypad.restKey.textSize,
                 textAlign = TextAlign.Center,
             ),
             // The glyph is decoration: the key above already carries the spoken name, and leaving the

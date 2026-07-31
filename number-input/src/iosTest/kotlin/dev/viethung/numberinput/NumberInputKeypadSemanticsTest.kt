@@ -79,12 +79,12 @@ class NumberInputKeypadSemanticsTest {
             .assertHasClickAction()
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
             // Punctuation has no useful spoken form, so the key carries a name instead of the glyph.
-            .assertContentDescriptionEquals(style.decimalContentDescription)
+            .assertContentDescriptionEquals(style.keypad.decimalContentDescription)
 
         onNodeWithTag(TAG_KEYPAD_BACKSPACE)
             .assertHasClickAction()
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
-            .assertContentDescriptionEquals(style.backspaceContentDescription)
+            .assertContentDescriptionEquals(style.keypad.backspaceContentDescription)
     }
 
     /**

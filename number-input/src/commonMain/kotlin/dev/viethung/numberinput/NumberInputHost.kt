@@ -249,7 +249,7 @@ internal val LocalNumberInputToolbarHost = compositionLocalOf<NumberInputToolbar
  * `WindowInsets.ime` and `Modifier.imePadding()` consumes it; the keypad is drawn by this library, so
  * it has to publish its own equivalent.
  *
- * Measured rather than derived from [NumberInputStyle.keyHeight]: the toolbar row, the row spacing and
+ * Measured rather than derived from [NumberInputKeypadStyle.keyHeight]: the toolbar row, the row spacing and
  * the navigation-bar inset all contribute, and a computed guess would drift the moment any of them
  * changed.
  *
@@ -321,32 +321,32 @@ internal fun NumberInputToolbarBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(style.toolbarBackgroundColor)
+            .background(style.toolbar.backgroundColor)
             .padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         ToolbarAction(
-            label = style.clearLabel,
+            label = style.toolbar.clearLabel,
             enabled = state.clearEnabled,
-            tint = style.toolbarTint,
+            tint = style.toolbar.tint,
             disabledAlpha = style.disabledAlpha,
             testTag = TAG_CLEAR,
             onClick = state::clear,
         )
         Spacer(Modifier.width(4.dp))
         ToolbarAction(
-            label = style.signLabel,
+            label = style.toolbar.signLabel,
             enabled = state.signEnabled,
-            tint = style.toolbarTint,
+            tint = style.toolbar.tint,
             disabledAlpha = style.disabledAlpha,
             testTag = TAG_SIGN,
             onClick = state::toggleSign,
         )
         Spacer(Modifier.weight(1f))
         ToolbarAction(
-            label = style.doneLabel,
+            label = style.toolbar.doneLabel,
             enabled = true,
-            tint = style.toolbarTint,
+            tint = style.toolbar.tint,
             disabledAlpha = style.disabledAlpha,
             testTag = TAG_DONE,
             onClick = onDone,

@@ -302,18 +302,18 @@ internal class NumberInputCoordinator : NSObject(), UITextFieldDelegateProtocol 
 
     fun buildToolbar(style: NumberInputStyle): UIToolbar {
         val toolbar = UIToolbar()
-        toolbar.setBarTintColor(style.toolbarBackgroundColor.toUIColor())
-        toolbar.setTintColor(style.toolbarTint.toUIColor())
+        toolbar.setBarTintColor(style.toolbar.backgroundColor.toUIColor())
+        toolbar.setTintColor(style.toolbar.tint.toUIColor())
 
         val clear = UIBarButtonItem(
-            title = style.clearLabel,
+            title = style.toolbar.clearLabel,
             style = UIBarButtonItemStyle.UIBarButtonItemStylePlain,
             target = this,
             action = NSSelectorFromString("clearTapped"),
         ).apply { identify(TAG_CLEAR) }
 
         val sign = UIBarButtonItem(
-            title = style.signLabel,
+            title = style.toolbar.signLabel,
             style = UIBarButtonItemStyle.UIBarButtonItemStylePlain,
             target = this,
             action = NSSelectorFromString("signTapped"),
@@ -326,7 +326,7 @@ internal class NumberInputCoordinator : NSObject(), UITextFieldDelegateProtocol 
         )
 
         val done = UIBarButtonItem(
-            title = style.doneLabel,
+            title = style.toolbar.doneLabel,
             style = UIBarButtonItemStyle.UIBarButtonItemStyleDone,
             target = this,
             action = NSSelectorFromString("doneTapped"),
@@ -341,8 +341,8 @@ internal class NumberInputCoordinator : NSObject(), UITextFieldDelegateProtocol 
     }
 
     private fun updateToolbarLabels(style: NumberInputStyle) {
-        clearItem?.setTitle(style.clearLabel)
-        signItem?.setTitle(style.signLabel)
+        clearItem?.setTitle(style.toolbar.clearLabel)
+        signItem?.setTitle(style.toolbar.signLabel)
     }
 
     fun syncToolbar(clearEnabled: Boolean, signEnabled: Boolean) {
