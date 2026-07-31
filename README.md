@@ -32,6 +32,8 @@ displayed string in agreement.
   such as the Vietnamese đồng.
 - **Keyboard toolbar** with Clear, sign toggle and Done, enabled/disabled by shared rules on both
   platforms.
+- **Follows light/dark** for the parts the library draws itself — the keypad and its toolbar row —
+  without a theme to read. Set any of those colours explicitly to opt out.
 - **No Material dependency** — `compose.runtime` / `foundation` / `ui` only. Styling comes from
   `NumberInputStyle`, so it drops into any design system.
 
@@ -220,10 +222,38 @@ paste and every accessibility affordance the OS provides; the keypad trades thos
 key and identical behaviour across platforms. Keys grey out exactly when a press would be refused — the
 decimal key once a separator is present or on an integer-only field, digits once the fraction is full.
 
-Wrap the screen in `NumberInputHost` when using it. The keypad is Compose on both platforms, so unlike
-the default iOS toolbar it cannot be attached to the system keyboard and needs the host to sit above the
-safe area. Without a host it renders inline beneath the field, which still works but pushes content
-down. The keypad carries its own Clear / ± / Done row, so you never get both it and the toolbar.
+**Wrap the screen in `NumberInputHost`.** The keypad is Compose on both platforms, so unlike the default
+iOS toolbar it cannot be attached to the system keyboard and needs the host to sit above the safe area.
+The keypad carries its own Clear / ± / Done row, so you never get both it and the toolbar.
+
+Without a host, the two platforms degrade differently: Android renders the keypad inline beneath the
+field — usable, but it pushes content down and does not animate — while **iOS falls back to the system
+keyboard**, because there is nothing to draw a keypad into and suppressing the keyboard anyway would
+leave the field impossible to type in. That fallback gives you the device region's decimal key, which is
+the one thing the keypad is there to fix. Values stay correct either way. Use a host.
+
+**Reserve space for it.** The keypad overlays your content, so a field low on the screen would sit
+behind it. `Modifier.numberInputKeypadPadding()` is the keypad's counterpart to `Modifier.imePadding()`
+— apply it to the **scroll container**, before `verticalScroll`:
+
+```kotlin
+Column(
+    Modifier
+        .fillMaxSize()
+        .imePadding()                 // the system keyboard, for your other fields
+        .numberInputKeypadPadding()   // this library's keypad
+        .verticalScroll(scrollState)
+) { /* fields */ }
+```
+
+Order matters: padding the container shrinks the viewport, which is what lets a focused field scroll up
+out from behind the keypad. Padding the content inside it only adds space below and leaves the obscured
+region exactly as it was. The padding is zero unless a keypad is showing, so it costs nothing on the
+default path.
+
+If you need the raw figure, `LocalNumberInputKeypadHeight` carries it. It animates in step with the
+keypad, so key any `LaunchedEffect` on `LocalNumberInputKeypadTargetHeight` instead — that one changes
+once per open rather than once per frame.
 
 ## Styling and localisation
 
@@ -243,6 +273,28 @@ NumberInputStyle(
 
 > The toolbar labels default to English and will ship to every user that way. Pass localised strings
 > from your own resources.
+
+### Light and dark
+
+Most of `NumberInputStyle` defaults to neutral literals, because the field is yours to theme — this
+library depends on `compose.foundation`, not Material, so it has no theme to read.
+
+The five colours the library draws *itself* are the exception: the keypad's background, key background
+and key text, and the toolbar row's background and tint. There is no design system for a consumer to
+bring for a stand-in system keyboard, so those default to `Color.Unspecified` and resolve against the
+device's light/dark appearance:
+
+```kotlin
+NumberInputStyle()                                  // keypad and toolbar follow the OS appearance
+NumberInputStyle(keyBackgroundColor = Color.White)   // pinned white in both appearances
+```
+
+Setting any of the five opts that one colour out and leaves the rest following the appearance. This is
+per-colour, not a mode switch. `Color.Transparent` counts as a deliberate choice; only
+`Color.Unspecified` — the default — is treated as unset.
+
+They follow the **device**, not the `MaterialTheme` around them, matching the system keyboard they stand
+in for. If your app is dark-only or light-only against the platform setting, set the five explicitly.
 
 The style surface is deliberately small: every property maps to *both* a Compose `BasicTextField` and
 a UIKit `UITextField`. Anything that would work on only one platform — `FontFamily`, gradients,

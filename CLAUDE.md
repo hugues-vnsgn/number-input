@@ -81,11 +81,66 @@ Every press (`NumberInputState.pressDigit/pressDecimalSeparator/pressBackspace`)
 rule and the keystroke filter apply to the keypad for free rather than being restated —
 `NumberInputKeypadRules` only asks the same conditions in advance so a key can be greyed out before it's
 pressed. `NumberInputHost` renders the keypad in place of the bare toolbar (never both; the keypad's row
-*is* the toolbar) and needs it on **both** platforms now, since the keypad is Compose everywhere.
+*is* the toolbar) and needs it on **both** platforms now, since the keypad is Compose everywhere — on iOS
+it is effectively required, not merely recommended; see the fail-safe under Toolbar placement.
 
 The decimal key is the reason the feature exists: it reads `NumberInputState.decimalKeyLabel`, this
 field's own locale separator, rather than following the device region the system decimal pad is stuck
 with.
+
+Two things the keypad needs that the system keyboard gets from the OS, both found on a simulator after
+the keypad itself worked:
+
+- **It publishes its own inset.** Compose exposes the system keyboard as `WindowInsets.ime`, so
+  `imePadding()` keeps content clear of it; nothing does that for a keypad the library draws. The host
+  measures the keypad (after `navigationBarsPadding`, so the figure covers everything below its top
+  edge) and publishes `LocalNumberInputKeypadHeight`, with `Modifier.numberInputKeypadPadding()` as the
+  `imePadding()` counterpart. It is measured, not computed from `keyHeight` — the toolbar row, row
+  spacing and nav-bar inset all contribute. `onSizeChanged` does not fire on removal, so a
+  `DisposableEffect` resets it or the reserved space outlives the keypad. Consumers must apply it
+  **before** `verticalScroll`: padding the container shrinks the viewport, which is what makes a
+  focused field scrollable out from behind the keypad, whereas padding the content leaves the obscured
+  region exactly as it was.
+- **The iOS field scrolls itself into view.** A Compose `BasicTextField` gets this free, but focus for
+  the iOS field lives in UIKit, so Compose has no focus event and a low field just stays covered. The
+  field holds a `BringIntoViewRequester` and requests on focus, keyed on the published keypad height so
+  the scroll targets the already-shrunken viewport rather than the full-height one.
+
+**The keypad animates, and that is what forces the host to outlive the field's focus.** One
+`animateDpAsState` in `NumberInputHost` is *both* the keypad's `offset` and the published inset, so the
+drawn edge and the reserved space cannot drift apart. The exit is the hard half: `host.request` goes
+null the instant focus is lost, which would drop the keypad out of composition with nothing left to
+animate, so the host latches a `retainedRequest` and draws from that until the animation's
+`finishedListener` reports it settled at zero — `onSizeChanged` never fires on removal, and disposal now
+happens at the *end* of the exit, so neither can release it. Three details each look like noise and are
+not: only a *keypad* request is latched (latching a toolbar request would animate out the wrong field
+when focus moves keypad → toolbar), the latch is written during composition rather than in a
+`LaunchedEffect` (a frame late is long enough for the keypad to blink out before sliding), and a
+different incoming request cuts the retention immediately so the new field never waits on the old
+keypad's exit. `measuredKeypadHeight` is deliberately *not* cleared on close: it is the height to
+animate from on the next open. Because the published height now interpolates, there are two locals —
+`LocalNumberInputKeypadHeight` to lay out against, `LocalNumberInputKeypadTargetHeight` to key effects
+on. The iOS field's `BringIntoViewRequester` keys on the target for exactly this reason; keying on the
+animating value re-issues the scroll every frame.
+
+**Dark mode** covers only the five colours the library draws itself (the keypad's three, the toolbar
+row's two). They default to `Color.Unspecified` and `resolveThemedColors` substitutes a light or dark
+palette for whichever were left unset. `Color.Unspecified` rather than a nullable `Color?` is what makes
+an explicit `Color.Transparent` a real choice instead of another kind of absence — `Color.takeOrElse`
+falls back on `Unspecified` only. The field's own colours keep their literal defaults: a consumer's
+design system has values for those, and none for a stand-in system keyboard.
+
+Resolution is not optional plumbing. `Color.Unspecified` draws as *transparent*, so an unresolved
+sentinel reaching `toUIColor()` yields an invisible toolbar rather than an error — nothing downstream can
+tell it from a colour someone chose (`IosKeypadSuppressionTest` pins that alpha at 0 so the requirement
+has a stated reason). It happens once per entry point that draws: each platform's
+`PlatformNumberInputField`, and `NumberInputHost` for the request it renders. iOS needs it at the
+composable frame because `buildToolbar`/`applyStyle`/`configureInputViews` run inside `UIKitView`'s
+`update`, which is not `@Composable`. Resolving is idempotent but **not** reversible — a resolved style
+is *set*, so re-resolving it for the other appearance keeps the first palette. That is why the field
+publishes its **unresolved** style into the host: the host's request can outlive that field's focus by a
+full exit animation, and a style resolved in the field would freeze at the appearance that held when
+focus arrived, keeping a dark keypad on a device flipped to light mid-edit.
 
 A real accessibility defect surfaced building this, worth knowing about before touching
 `NumberInputKeypad.kt` again: a `clickable` `Box` with a `BasicText` child publishes the box and the
@@ -119,8 +174,20 @@ platform passes only its separators and an integer-grouping lambda.
   (an `NSObject` + `UITextFieldDelegateProtocol`) owns selector/target-action wiring and exposes
   lambda properties the composable refreshes each recomposition.
 
-Three things on the iOS path are load-bearing and each looks removable:
+Four things on the iOS path are load-bearing and each looks removable:
 
+- Input views are set from `configureInputViews()` in `update` **and** re-asserted from
+  `textFieldDidBeginEditing`, followed by `reloadInputViews()`. `factory` is the obvious home and is
+  wrong twice over: it runs once, pinning the first `useBuiltInKeypad` value for the view's lifetime, and
+  it cannot handle focus moving *between* fields while a keyboard is already up — UIKit goes on
+  presenting the outgoing responder's input view and never queries the incoming one, so tapping a keypad
+  field straight after a system-keyboard field left the system keyboard covering the keypad. A cold tap
+  worked, which made this look like a timing bug. `reloadInputViews()` forces the re-read and is only
+  valid while first responder, which is why that call site is the delegate callback and not `update`. It
+  runs for the keypad path only — reloading the system-keyboard path would dismiss and re-present an
+  identical keyboard. `configureInputViews` is idempotent (one reused zero-size suppressor) because
+  `update` calls it on every recomposition. Note the suppressor must be a real zero-size `UIView`: `nil`
+  means "use the default input view", i.e. the keyboard being replaced.
 - `UIKitInteropProperties(isNativeAccessibilityEnabled = true)` on the `UIKitView`. It defaults to
   **false**, which makes Compose publish its own semantics for the interop subtree and drop the hosted
   view from the accessibility hierarchy entirely — `TAG_FIELD` then resolves to nothing for UI tests
@@ -142,8 +209,20 @@ Three things on the iOS path are load-bearing and each looks removable:
 so `NumberInputHost` provides a single-slot `compositionLocalOf` holder that the focused field publishes
 itself into; the host renders the toolbar bottom-aligned with `imePadding()` so Compose animates it in
 lockstep with the IME. Consumers must supply `windowSoftInputMode="adjustResize"` and
-`enableEdgeToEdge()` — a library cannot. Without a host the field falls back to rendering the toolbar
-inline beneath itself. `NumberInputToolbarBar` is shared between both paths so they cannot drift.
+`enableEdgeToEdge()` — a library cannot. Without a host the Android field falls back to rendering the
+toolbar inline beneath itself. `NumberInputToolbarBar` is shared between both paths so they cannot drift.
+
+The hostless *keypad* case is the one asymmetry left, and it is a fail-safe rather than a fallback. The
+iOS field is a `UIKitView` with no inline fallback of any kind, so suppressing the system keyboard
+without a host left no keyboard **and** no keypad — a field that focuses, shows a caret and cannot be
+typed into. Suppression is therefore conditional on `NumberInputCoordinator.keypadHosted`, which the
+composable refreshes from `LocalNumberInputToolbarHost` each recomposition (a `CompositionLocal` the
+coordinator cannot read itself); with no host the field takes the ordinary system-keyboard-plus-`UIToolbar`
+path. That means a wrong-looking decimal key — the thing the keypad exists to fix — but the value is
+still right, since `NumberInputState` translates a keypad "." into the field's own separator whichever
+keyboard sent it. `shouldSuppressSystemKeyboard()` is the single condition, read by both
+`configureInputViews` and `textFieldDidBeginEditing`, so the two cannot disagree about which keyboard
+this field is on.
 
 `NumberInputField.android.kt` documents a rejected `Popup` approach; it looks obvious and is a dead
 end (`WindowInsets.ime` reads 0 inside a separate window). Don't reintroduce it.
@@ -170,14 +249,28 @@ here. Verify the environment with `npx -y -p xcodebuildmcp@2.7.0 xcodebuildmcp-d
 `build_run_sim`, `screenshot`, `snapshot_ui`. The `ui-automation` group (`tap`, `type_text`, `swipe`)
 is **not** available as tools. Two ways round it, no restart needed for either:
 
-- the same tools as a CLI: `npx -y -p xcodebuildmcp@2.7.0 xcodebuildmcp ui-automation <tool> --help`
+- the same tools as a CLI: `npx -y -p xcodebuildmcp@2.7.0 xcodebuildmcp ui-automation <tool> --help`.
+  Note its flags are `--simulator-id`/`--element-ref`, not `--udid`/`--id`, and its `elementRef`s come
+  from a snapshot the **CLI process** holds — refs from the MCP `snapshot_ui` are not visible to it and
+  fail with `SNAPSHOT_MISSING`. For one-off taps `axe` is less trouble.
 - `axe` directly, e.g. `axe tap --id numberInput.field --udid <udid>`, which selects by identifier and
-  avoids brittle coordinates
+  avoids brittle coordinates. It refuses rather than guesses when an id is ambiguous, which the five
+  same-tagged fields trigger — read frames from `describe-ui` and tap `-x/-y` for those.
 
 2.7.0 **bundles** `axe` at `node_modules/xcodebuildmcp/bundled/axe` inside its npx cache, so UI
 automation works with nothing on PATH — `which axe` failing does not mean it is missing. Add
 `enabledWorkflows: ["simulator", "ui-automation"]` to a project-local `.xcodebuildmcp/config.yaml` to
-get the MCP tools proper (that one does need a restart).
+get the MCP tools proper (that one does need a restart). Locate the binary with
+`find ~/.npm/_npx -type f -name axe -path "*bundled*"`.
+
+**The simulator here has a hardware keyboard connected, and that changes what a screenshot proves.** The
+software keyboard is still created and still in the accessibility tree, but it is positioned *below* the
+screen — keys at y≈898–1114 against a screen bottom of ~874 — so only the `inputAccessoryView` toolbar is
+visible at the bottom of the frame. A screenshot therefore looks exactly like "no keyboard appeared",
+which is the same symptom as the suppression defect. Do not read it as one. `describe-ui` shows the keys;
+compare geometry against a *plain* field on the main tab, which has always used the system keyboard, and
+identical numbers mean the path is behaving normally. Tapping those keys is impossible while they are
+off-screen, so drive text with `axe type` instead.
 
 The Xcode project is `cmp/iosApp/iosApp.xcodeproj`, scheme `iosApp`, bundle id
 `org.example.project.cmp`. Drive elements by the `TestTags.kt` identifiers, which are set as
@@ -196,6 +289,31 @@ no emulator or device was available, so `readOnly = true` suppressing the IME wh
 caret and the focus-loss commit is unconfirmed on a real Android runtime. That is the first thing to
 check there.
 
+A third tab, `NoHostKeypadSampleScreen` (`tabNoHostKeypad`), holds a keypad field composed **outside** any
+`NumberInputHost` — the hostless fail-safe, which the main screen cannot show because it wraps everything
+in a host. Verified on the iOS simulator: the field takes focus, gets the system decimal pad and the
+`UIToolbar`, and typing `1.5` lands `1,50` after Fertig with a bound value of `1.5` — so the de-DE
+separator translation survives a "." that came from the *system* keyboard, and the commit path still runs.
+Its toolbar colours are deliberately left unset, so it doubles as the light/dark palette check. The tab
+row scrolls horizontally now; four buttons do not fit a phone width and the fourth was clipped rather
+than wrapped.
+
+The sample's light/dark toggle moves **the app's** Material colours only. The keypad reads
+`isSystemInDarkTheme()` directly, so it follows the OS and not that button — deliberately, since it
+stands in for the system keyboard. To check the keypad's own palette, change the device appearance for
+real: `xcrun simctl ui <udid> appearance light|dark`. The button is still the faster check for the case a
+consumer with a light-only or dark-only design system hits, where the keypad holds the platform
+appearance while the app around it is themed against it.
+
+That fifth field sits at the bottom of the column, which is what surfaced the missing keypad inset: with
+no padding it was behind its own keypad, and behind the system keyboard from any other field, so it was
+unreachable by tap. The sample now applies `imePadding().numberInputKeypadPadding()` to the scroll
+container. Two traps when driving it from a UI test: an `axe tap` at a y-coordinate below ~566 lands on
+the *keyboard* rather than the field, so read frames from `describe-ui` rather than assuming positions,
+and check the toolbar's language (`Löschen` vs `Clear`) to confirm which field actually holds focus — a
+tap that misses still leaves a keyboard on screen and looks like success. A fast `axe swipe` over a
+Compose scrollable is also dropped; pass `--duration 0.6`.
+
 A trap when iterating on iOS: publishing to mavenLocal is not enough. The `:shared` framework has to be
 relinked (`./gradlew :shared:linkDebugFrameworkIosSimulatorArm64 --refresh-dependencies` in the `cmp`
 repo) *and* the running app stopped and relaunched, or `build_run_sim` will report success in a few
@@ -209,6 +327,12 @@ grep the installed binary — Kotlin/Native stores string literals as **UTF-16LE
 - `commonTest` uses `FakeLocaleNumberFormatter` (deterministic, no platform APIs) and covers
   `NumberInputState`, the grouping/offset-mapping transformation, and the keypad's press handlers and
   enablement rules (`NumberInputKeypadTest` — state-level, no composition).
+  `NumberInputStyleResolveTest` covers dark-mode resolution against the plain `resolveThemedColors`
+  rather than the `@Composable` wrapper, for the same reason the keypad's rules are tested at state
+  level: the branch table *is* the behaviour. What it pins is the substitution rule, not the palette —
+  an explicitly-set colour surviving both appearances, `Color.Transparent` counting as a choice rather
+  than an absence, and re-resolution being a no-op (the property the multi-entry-point resolution
+  depends on).
 - `androidUnitTest` (`AndroidLocaleNumberFormatterTest`, JVM, no device) is the counterweight to that
   fake. The fake models exactly two conventions, `,`/`.` and `.`/`,`, which is an assumption about the
   platform rather than a measurement of it; this suite measures it. It pins that the separators the
@@ -230,8 +354,16 @@ grep the installed binary — Kotlin/Native stores string literals as **UTF-16LE
   `typing_faster_than_recomposition_still_resolves_the_decimal_point` case drives a real `UITextField`
   with *no* recomposition at all, which is the only way to catch a stale previous-buffer diff.
   `IosKeypadSuppressionTest` covers the built-in keypad's UIKit half: that an empty `inputView` is what
-  actually replaces the system keyboard, and that the keypad's Done reaches the same
-  `resignFocus()`/commit path the `UIToolbar`'s Done does. `NumberInputKeypadSemanticsTest` uses
+  actually replaces the system keyboard, that `textFieldDidBeginEditing` re-asserts it (the
+  field-to-field focus case above, which `update` alone does not cover) while leaving the
+  system-keyboard path untouched, that `configureInputViews` is idempotent, and that the keypad's Done
+  reaches the same `resignFocus()`/commit path the `UIToolbar`'s Done does. It also pins the hostless
+  fail-safe from both directions — no host keeps the system keyboard and its toolbar, and a host
+  arriving later starts suppressing — which is why every suppression test there has to set
+  `keypadHosted` explicitly. It also holds the two
+  dark-mode guards that need a real `UIColor`: that an unresolved `Color.Unspecified` crosses into UIKit
+  as alpha 0 — stated first, so the guard has a reason — and that `buildToolbar` receives opaque tints in
+  both appearances. `NumberInputKeypadSemanticsTest` uses
   Compose's `runComposeUiTest` — the same semantics tree Compose hands the platform accessibility
   service, run on this target's real simulator — to pin the keypad's button roles and spoken names;
   see the keypad note under Architecture for why a plain click-action assertion does not catch the

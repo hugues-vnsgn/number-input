@@ -8,3 +8,8 @@ captures/
 *.hprof
 xcuserdata/
 .claude/
+
+# Local agent tooling: build-log scratch and skill pins, machine-specific.
+.agent/
+.agents/
+skills-lock.json

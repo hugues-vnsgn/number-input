@@ -57,9 +57,15 @@ internal actual fun PlatformNumberInputField(
         )
     }
 
+    // Resolved once, here, so the keypad and toolbar this field may draw — inline below, or via the
+    // host — never see one of NumberInputStyle's five Color.Unspecified sentinels. The field's own
+    // colours pass through resolveThemedColors unchanged, so using the resolved style everywhere below
+    // is equivalent to `style` except for those five.
+    val resolvedStyle = style.resolvedForCurrentAppearance()
+
     var focused by remember { mutableStateOf(false) }
-    val contentAlpha = if (enabled) 1f else style.disabledAlpha
-    val shape = remember(style.cornerRadius) { RoundedCornerShape(style.cornerRadius) }
+    val contentAlpha = if (enabled) 1f else resolvedStyle.disabledAlpha
+    val shape = remember(resolvedStyle.cornerRadius) { RoundedCornerShape(resolvedStyle.cornerRadius) }
 
     val host = LocalNumberInputToolbarHost.current
     val focusManager = LocalFocusManager.current
@@ -68,6 +74,12 @@ internal actual fun PlatformNumberInputField(
     // Publish into the host while focused. Keyed on style too, so a restyle mid-focus is picked up.
     // Dropping focus runs the same commit path as tapping away, so there is one commit route rather
     // than two that can drift.
+    //
+    // The *unresolved* style goes into the host on purpose. The host retains this request past focus
+    // loss to animate the keypad out, so a style resolved here would be frozen at the appearance it had
+    // when focus arrived — flip the device to light mid-edit and the keypad kept its dark keys, because
+    // this composable is no longer the one deciding. The host resolves what it draws, against the
+    // appearance at the time it draws it.
     DisposableEffect(host, showToolbar, state, style) {
         if (host != null && showToolbar) {
             host.show(state, style) { focusManager.clearFocus() }
@@ -96,29 +108,37 @@ internal actual fun PlatformNumberInputField(
             readOnly = state.config.useBuiltInKeypad,
             singleLine = true,
             textStyle = TextStyle(
-                color = style.textColor.copy(alpha = style.textColor.alpha * contentAlpha),
-                fontSize = style.textSize,
-                fontWeight = style.textWeight,
-                textAlign = style.textAlign,
+                color = resolvedStyle.textColor.copy(alpha = resolvedStyle.textColor.alpha * contentAlpha),
+                fontSize = resolvedStyle.textSize,
+                fontWeight = resolvedStyle.textWeight,
+                textAlign = resolvedStyle.textAlign,
             ),
             visualTransformation = transformation,
-            cursorBrush = SolidColor(style.cursorColor),
+            cursorBrush = SolidColor(resolvedStyle.cursorColor),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             decorationBox = { innerTextField ->
                 Box(
                     modifier = Modifier
-                        .background(style.backgroundColor, shape)
-                        .border(style.borderWidth, style.borderColor.copy(alpha = style.borderColor.alpha * contentAlpha), shape)
+                        .background(resolvedStyle.backgroundColor, shape)
+                        .border(
+                            resolvedStyle.borderWidth,
+                            resolvedStyle.borderColor.copy(
+                                alpha = resolvedStyle.borderColor.alpha * contentAlpha,
+                            ),
+                            shape,
+                        )
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                 ) {
                     if (state.rawText.isEmpty() && state.config.placeholder.isNotEmpty()) {
                         BasicText(
                             text = state.config.placeholder,
                             style = TextStyle(
-                                color = style.placeholderColor.copy(alpha = style.placeholderColor.alpha * contentAlpha),
-                                fontSize = style.textSize,
-                                fontWeight = style.textWeight,
-                                textAlign = style.textAlign,
+                                color = resolvedStyle.placeholderColor.copy(
+                                    alpha = resolvedStyle.placeholderColor.alpha * contentAlpha,
+                                ),
+                                fontSize = resolvedStyle.textSize,
+                                fontWeight = resolvedStyle.textWeight,
+                                textAlign = resolvedStyle.textAlign,
                             ),
                         )
                     }
@@ -134,9 +154,9 @@ internal actual fun PlatformNumberInputField(
             // rather than two that can drift.
             val onDone = { focusManager.clearFocus() }
             if (state.config.useBuiltInKeypad) {
-                NumberInputKeypad(state = state, style = style, onDone = onDone)
+                NumberInputKeypad(state = state, style = resolvedStyle, onDone = onDone)
             } else {
-                NumberInputToolbarBar(state = state, style = style, onDone = onDone)
+                NumberInputToolbarBar(state = state, style = resolvedStyle, onDone = onDone)
             }
         }
     }
