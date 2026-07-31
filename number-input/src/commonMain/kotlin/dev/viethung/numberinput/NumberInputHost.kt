@@ -4,18 +4,22 @@ import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -26,15 +30,26 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.takeOrElse
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 
 /**
  * Wrap your screen in this to get a Clear / ± / Done toolbar pinned to the software keyboard.
@@ -82,10 +97,16 @@ import androidx.compose.ui.unit.sp
  * [numberInputKeypadPadding] to your scroll container to reserve the space — the keypad's counterpart
  * to `Modifier.imePadding()`, which handles the system keyboard. See [LocalNumberInputKeypadHeight] for
  * the raw measurement.
+ *
+ * [leadingAccessory] is drawn at the left end of the toolbar row — a brand mark, typically. It sits on
+ * the host rather than the field because it is constant for an app, and repeating it at every field's
+ * call site would be noise. It is therefore absent from the Android hostless inline fallback, and from
+ * iOS's native `UIToolbar`, which keeps system styling by design.
  */
 @Composable
 fun NumberInputHost(
     modifier: Modifier = Modifier,
+    leadingAccessory: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
     val host = remember { NumberInputToolbarHost() }
@@ -179,6 +200,9 @@ fun NumberInputHost(
                         state = request.state,
                         style = resolvedStyle,
                         onDone = request.onDone,
+                        leadingAccessory = leadingAccessory,
+                        onPrevious = request.onPrevious,
+                        onNext = request.onNext,
                         modifier = bottom
                             // Slides by exactly the height the animation has not yet given back: at
                             // rest this is 0 (measured == animated); at the start of the entrance it is
@@ -206,6 +230,9 @@ fun NumberInputHost(
                         style = resolvedStyle,
                         onDone = request.onDone,
                         modifier = bottom.imePadding(),
+                        leadingAccessory = leadingAccessory,
+                        onPrevious = request.onPrevious,
+                        onNext = request.onNext,
                     )
                 }
             }
@@ -221,8 +248,14 @@ internal class NumberInputToolbarHost {
     var request: NumberInputToolbarRequest? by mutableStateOf(null)
         private set
 
-    fun show(state: NumberInputState, style: NumberInputStyle, onDone: () -> Unit) {
-        request = NumberInputToolbarRequest(state, style, onDone)
+    fun show(
+        state: NumberInputState,
+        style: NumberInputStyle,
+        onPrevious: (() -> Unit)? = null,
+        onNext: (() -> Unit)? = null,
+        onDone: () -> Unit,
+    ) {
+        request = NumberInputToolbarRequest(state, style, onDone, onPrevious, onNext)
     }
 
     /** Ignores stale hides from a field that already lost the slot to another one. */
@@ -235,6 +268,8 @@ internal data class NumberInputToolbarRequest(
     val state: NumberInputState,
     val style: NumberInputStyle,
     val onDone: () -> Unit,
+    val onPrevious: (() -> Unit)? = null,
+    val onNext: (() -> Unit)? = null,
 )
 
 internal val LocalNumberInputToolbarHost = compositionLocalOf<NumberInputToolbarHost?> { null }
@@ -305,11 +340,18 @@ fun Modifier.numberInputKeypadPadding(): Modifier =
     this.padding(bottom = LocalNumberInputKeypadHeight.current)
 
 /**
- * The toolbar itself. Shared so the host and the inline fallback cannot drift apart.
+ * The toolbar itself. Shared so the host, the inline fallback and the keypad's own top row cannot
+ * drift apart.
+ *
+ * The layout covers a design's usual variants without branching on a mode: a leading slot — the
+ * [leadingAccessory] and then prev/next, when supplied — followed by either a centred
+ * [NumberInputToolbarStyle.hint] or a plain spacer, then the right-aligned actions in a fixed
+ * ± → Clear → Done order. ± is omitted entirely when negatives are locked, per
+ * [NumberInputToolbarRules.signVisible].
  *
  * [onDone] is supplied by the field rather than defaulted here. It has to drop focus, not just
  * commit — committing alone leaves the keyboard up and the toolbar on screen. Routing it from the
- * field keeps one dismissal path for both the host and the inline fallback.
+ * field keeps one dismissal path for every call site.
  */
 @Composable
 internal fun NumberInputToolbarBar(
@@ -317,37 +359,101 @@ internal fun NumberInputToolbarBar(
     style: NumberInputStyle,
     onDone: () -> Unit,
     modifier: Modifier = Modifier,
+    leadingAccessory: (@Composable () -> Unit)? = null,
+    onPrevious: (() -> Unit)? = null,
+    onNext: (() -> Unit)? = null,
 ) {
+    val toolbar = style.toolbar
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(style.toolbar.backgroundColor)
-            .padding(horizontal = 4.dp),
+            .then(if (toolbar.height != Dp.Unspecified) Modifier.height(toolbar.height) else Modifier)
+            .background(toolbar.backgroundColor)
+            .then(
+                if (toolbar.bottomBorderColor != Color.Unspecified) {
+                    Modifier.drawBehind {
+                        val line = toolbar.bottomBorderWidth.toPx()
+                        drawRect(
+                            color = toolbar.bottomBorderColor,
+                            topLeft = Offset(0f, size.height - line),
+                            size = Size(size.width, line),
+                        )
+                    }
+                } else {
+                    Modifier
+                },
+            )
+            .padding(horizontal = toolbar.contentPadding),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(toolbar.itemSpacing),
     ) {
+        leadingAccessory?.let { accessory ->
+            Box(Modifier.testTag(TAG_TOOLBAR_LOGO)) { accessory() }
+        }
+        if (onPrevious != null) {
+            ToolbarAction(
+                label = toolbar.previousLabel,
+                enabled = true,
+                chrome = toolbar.navigation,
+                style = style,
+                testTag = TAG_TOOLBAR_PREVIOUS,
+                onClick = onPrevious,
+                icon = toolbar.previousIcon,
+                contentDescription = toolbar.previousContentDescription,
+            )
+        }
+        if (onNext != null) {
+            ToolbarAction(
+                label = toolbar.nextLabel,
+                enabled = true,
+                chrome = toolbar.navigation,
+                style = style,
+                testTag = TAG_TOOLBAR_NEXT,
+                onClick = onNext,
+                icon = toolbar.nextIcon,
+                contentDescription = toolbar.nextContentDescription,
+            )
+        }
+
+        if (toolbar.hint != null) {
+            BasicText(
+                text = toolbar.hint,
+                style = TextStyle(
+                    color = toolbar.hintColor.takeOrElse { toolbar.tint },
+                    fontSize = toolbar.hintTextSize,
+                    fontWeight = toolbar.hintFontWeight,
+                    fontFamily = toolbar.fontFamily,
+                    textAlign = TextAlign.Center,
+                ),
+                modifier = Modifier.weight(1f).testTag(TAG_TOOLBAR_HINT),
+            )
+        } else {
+            Spacer(Modifier.weight(1f))
+        }
+
+        if (NumberInputToolbarRules.signVisible(state.config.allowNegative)) {
+            ToolbarAction(
+                label = toolbar.signLabel,
+                enabled = state.signEnabled,
+                chrome = toolbar.action,
+                style = style,
+                testTag = TAG_SIGN,
+                onClick = state::toggleSign,
+            )
+        }
         ToolbarAction(
-            label = style.toolbar.clearLabel,
+            label = toolbar.clearLabel,
             enabled = state.clearEnabled,
-            tint = style.toolbar.tint,
-            disabledAlpha = style.disabledAlpha,
+            chrome = toolbar.action,
+            style = style,
             testTag = TAG_CLEAR,
             onClick = state::clear,
         )
-        Spacer(Modifier.width(4.dp))
         ToolbarAction(
-            label = style.toolbar.signLabel,
-            enabled = state.signEnabled,
-            tint = style.toolbar.tint,
-            disabledAlpha = style.disabledAlpha,
-            testTag = TAG_SIGN,
-            onClick = state::toggleSign,
-        )
-        Spacer(Modifier.weight(1f))
-        ToolbarAction(
-            label = style.toolbar.doneLabel,
+            label = toolbar.doneLabel,
             enabled = true,
-            tint = style.toolbar.tint,
-            disabledAlpha = style.disabledAlpha,
+            chrome = toolbar.done,
+            style = style,
             testTag = TAG_DONE,
             onClick = onDone,
         )
@@ -358,20 +464,63 @@ internal fun NumberInputToolbarBar(
 private fun ToolbarAction(
     label: String,
     enabled: Boolean,
-    tint: Color,
-    disabledAlpha: Float,
+    chrome: NumberInputToolbarActionStyle,
+    style: NumberInputStyle,
     testTag: String,
     onClick: () -> Unit,
+    icon: ImageVector? = null,
+    contentDescription: String = label,
 ) {
-    BasicText(
-        text = label,
-        style = TextStyle(
-            color = tint.copy(alpha = if (enabled) tint.alpha else tint.alpha * disabledAlpha),
-            fontSize = 16.sp,
-        ),
+    val toolbar = style.toolbar
+    val tint = chrome.contentColor.takeOrElse { toolbar.tint }
+    val content = tint.copy(alpha = if (enabled) tint.alpha else tint.alpha * style.disabledAlpha)
+    val shape = RoundedCornerShape(chrome.cornerRadius)
+
+    Box(
         modifier = Modifier
             .testTag(testTag)
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-    )
+            .then(if (chrome.height != Dp.Unspecified) Modifier.height(chrome.height) else Modifier)
+            .background(chrome.backgroundColor, shape)
+            .then(
+                if (chrome.borderColor != Color.Unspecified && chrome.borderWidth > 0.dp) {
+                    Modifier.border(chrome.borderWidth, chrome.borderColor, shape)
+                } else {
+                    Modifier
+                },
+            )
+            .clickable(
+                enabled = enabled,
+                role = Role.Button,
+                onClickLabel = contentDescription,
+                onClick = onClick,
+            )
+            .semantics(mergeDescendants = true) {
+                this.contentDescription = contentDescription
+                if (!enabled) disabled()
+            }
+            .padding(horizontal = chrome.horizontalPadding, vertical = chrome.verticalPadding),
+        contentAlignment = Alignment.Center,
+    ) {
+        // As on the keypad's keys, the label is decoration: the button above carries the spoken name,
+        // and letting the content publish itself puts a second, unlabelled node in the tree.
+        if (icon != null) {
+            Image(
+                imageVector = icon,
+                contentDescription = null,
+                colorFilter = ColorFilter.tint(content),
+                modifier = Modifier.clearAndSetSemantics {},
+            )
+        } else {
+            BasicText(
+                text = label,
+                style = TextStyle(
+                    color = content,
+                    fontSize = toolbar.labelTextSize,
+                    fontWeight = toolbar.labelFontWeight,
+                    fontFamily = toolbar.fontFamily,
+                ),
+                modifier = Modifier.clearAndSetSemantics {},
+            )
+        }
+    }
 }

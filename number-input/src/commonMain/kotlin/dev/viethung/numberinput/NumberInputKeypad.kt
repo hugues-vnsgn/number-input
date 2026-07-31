@@ -65,6 +65,9 @@ internal fun NumberInputKeypad(
     style: NumberInputStyle,
     onDone: () -> Unit,
     modifier: Modifier = Modifier,
+    leadingAccessory: (@Composable () -> Unit)? = null,
+    onPrevious: (() -> Unit)? = null,
+    onNext: (() -> Unit)? = null,
 ) {
     Column(
         modifier = modifier
@@ -72,7 +75,14 @@ internal fun NumberInputKeypad(
             .testTag(TAG_KEYPAD)
             .background(style.keypad.backgroundColor),
     ) {
-        NumberInputToolbarBar(state = state, style = style, onDone = onDone)
+        NumberInputToolbarBar(
+            state = state,
+            style = style,
+            onDone = onDone,
+            leadingAccessory = leadingAccessory,
+            onPrevious = onPrevious,
+            onNext = onNext,
+        )
 
         // Rows of the standard phone arrangement: 1-2-3 at the top, separator / 0 / backspace last.
         for (row in listOf(listOf(1, 2, 3), listOf(4, 5, 6), listOf(7, 8, 9))) {

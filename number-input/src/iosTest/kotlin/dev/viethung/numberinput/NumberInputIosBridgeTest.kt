@@ -35,13 +35,13 @@ class NumberInputIosBridgeTest {
     private fun identifierOf(item: Any): String? = (item as NSObject).identifier()
 
     @Test
-    fun toolbar_carries_clear_sign_spacer_done_in_order() {
+    fun toolbar_carries_sign_clear_spacer_done_in_order() {
         val toolbar = NumberInputCoordinator().buildToolbar(style())
         val items = assertNotNull(toolbar.items)
 
         assertEquals(4, items.size)
-        assertEquals(TAG_CLEAR, identifierOf(items[0]!!))
-        assertEquals(TAG_SIGN, identifierOf(items[1]!!))
+        assertEquals(TAG_SIGN, identifierOf(items[0]!!))
+        assertEquals(TAG_CLEAR, identifierOf(items[1]!!))
         assertEquals(TAG_DONE, identifierOf(items[3]!!))
     }
 
@@ -50,8 +50,8 @@ class NumberInputIosBridgeTest {
         val toolbar = NumberInputCoordinator().buildToolbar(style())
         val items = assertNotNull(toolbar.items)
 
-        assertEquals("Xoá", (items[0] as UIBarButtonItem).title)
-        assertEquals("±", (items[1] as UIBarButtonItem).title)
+        assertEquals("±", (items[0] as UIBarButtonItem).title)
+        assertEquals("Xoá", (items[1] as UIBarButtonItem).title)
         assertEquals("Xong", (items[3] as UIBarButtonItem).title)
     }
 
@@ -60,8 +60,8 @@ class NumberInputIosBridgeTest {
         val coordinator = NumberInputCoordinator()
         val toolbar = coordinator.buildToolbar(style())
         val items = assertNotNull(toolbar.items)
-        val clear = items[0] as UIBarButtonItem
-        val sign = items[1] as UIBarButtonItem
+        val sign = items[0] as UIBarButtonItem
+        val clear = items[1] as UIBarButtonItem
 
         val empty = NumberInputState(config = NumberInputConfig(allowNegative = true))
         coordinator.syncToolbar(empty.clearEnabled, empty.signEnabled)
@@ -77,18 +77,41 @@ class NumberInputIosBridgeTest {
         assertTrue(sign.enabled)
     }
 
+    /**
+     * A field that locks negatives gets no ± at all, rather than a permanently greyed one — the same
+     * rule the Compose row applies, and expressible here because dropping a `UIBarButtonItem` needs no
+     * custom view. Asserted against a real `UIToolbar` because only that shows whether the item
+     * reached the bar; [NumberInputToolbarRules] alone would prove the rule and not its wiring.
+     */
     @Test
-    fun sign_disabled_when_negatives_are_not_allowed() {
+    fun sign_is_omitted_when_negatives_are_not_allowed() {
         val coordinator = NumberInputCoordinator()
-        val toolbar = coordinator.buildToolbar(style())
-        val sign = assertNotNull(toolbar.items)[1] as UIBarButtonItem
-
-        val unsigned = NumberInputState(
-            initialValue = 12.0,
-            config = NumberInputConfig(allowNegative = false),
+        coordinator.attach(
+            UITextField(),
+            NumberInputState(initialValue = 12.0, config = NumberInputConfig(allowNegative = false)),
+            style(),
         )
-        coordinator.syncToolbar(unsigned.clearEnabled, unsigned.signEnabled)
-        assertFalse(sign.enabled)
+
+        val items = assertNotNull(coordinator.buildToolbar(style()).items)
+
+        assertEquals(3, items.size)
+        assertEquals(TAG_CLEAR, identifierOf(items[0]!!))
+        assertEquals(TAG_DONE, identifierOf(items[2]!!))
+        assertFalse(items.any { identifierOf(it!!) == TAG_SIGN }, "expected no ± item")
+    }
+
+    /** And it is still present, merely disabled, while negatives are allowed but there is no value. */
+    @Test
+    fun sign_is_present_but_disabled_when_negatives_are_allowed_with_no_value() {
+        val coordinator = NumberInputCoordinator()
+        val empty = NumberInputState(config = NumberInputConfig(allowNegative = true))
+        coordinator.attach(UITextField(), empty, style())
+
+        val items = assertNotNull(coordinator.buildToolbar(style()).items)
+        coordinator.syncToolbar(empty.clearEnabled, empty.signEnabled)
+
+        assertEquals(TAG_SIGN, identifierOf(items[0]!!))
+        assertFalse((items[0] as UIBarButtonItem).enabled)
     }
 
     @Test
