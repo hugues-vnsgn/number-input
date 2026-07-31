@@ -1,5 +1,6 @@
 package dev.viethung.numberinput
 
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -10,7 +11,9 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -131,6 +134,31 @@ class NumberInputKeypadSemanticsTest {
         onNodeWithTag(keypadDigitTag(5)).assertIsNotEnabled()
         onNodeWithTag(TAG_KEYPAD_DECIMAL).assertIsNotEnabled()
         onNodeWithTag(TAG_KEYPAD_BACKSPACE).assertIsEnabled()
+    }
+
+    /**
+     * Swapping the backspace glyph for an `ImageVector` must not change what the accessibility tree
+     * sees. An `Image` carrying its own `contentDescription` would publish a second node, which is the
+     * same class of defect the glyph originally had.
+     */
+    @Test
+    fun a_backspace_icon_still_leaves_exactly_one_button_node() = runComposeUiTest {
+        val s = state()
+        s.pressDigit(1)
+        val icon = ImageVector.Builder(
+            defaultWidth = 26.dp,
+            defaultHeight = 20.dp,
+            viewportWidth = 26f,
+            viewportHeight = 20f,
+        ).build()
+        val style = NumberInputStyle(keypad = NumberInputKeypadStyle(backspaceIcon = icon))
+        setContent { NumberInputKeypad(state = s, style = style, onDone = {}) }
+
+        onNodeWithTag(TAG_KEYPAD_BACKSPACE)
+            .assertHasClickAction()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+            .assertContentDescriptionEquals(style.keypad.backspaceContentDescription)
+        onAllNodesWithContentDescription(style.keypad.backspaceContentDescription).assertCountEquals(1)
     }
 
     /** Pressing a disabled key through the tree must be a no-op, matching what the rules promise. */
