@@ -1,7 +1,10 @@
 package dev.viethung.numberinput
 
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,6 +42,9 @@ import platform.UIKit.UITextField
 import platform.UIKit.UITextFieldDelegateProtocol
 import platform.UIKit.UIToolbar
 import platform.UIKit.UIView
+// Declared on UIResponder; cinterop leaves it there rather than re-exposing it on UITextField, so the
+// inherited member needs its own import to resolve.
+import platform.UIKit.reloadInputViews
 import platform.darwin.NSObject
 
 /**
@@ -61,6 +67,11 @@ internal actual fun PlatformNumberInputField(
     style: NumberInputStyle,
     enabled: Boolean,
 ) {
+    // Resolved once, here — the composable frame — because configureInputViews/buildToolbar/applyStyle
+    // below all run inside UIKitView's `update`, which is not @Composable and could not call
+    // isSystemInDarkTheme() itself. See NumberInputStyle.resolvedForCurrentAppearance.
+    val resolvedStyle = style.resolvedForCurrentAppearance()
+
     val formatter = remember(state.config.locale) { newLocaleNumberFormatter() }
     val groupingSeparator = remember(formatter, state.config.locale) {
         formatter.groupingSeparator(state.config.locale)
@@ -78,6 +89,9 @@ internal actual fun PlatformNumberInputField(
     var focused by remember { mutableStateOf(false) }
     val showKeypad = focused && enabled && state.config.useBuiltInKeypad
 
+    // The *unresolved* style goes into the host, for the same reason the Android field does this: the
+    // host retains its request past focus loss to animate the keypad's exit, and a style resolved here
+    // would be frozen at whatever appearance held when focus arrived. The host resolves what it draws.
     DisposableEffect(host, showKeypad, state, style) {
         if (host != null && showKeypad) {
             // Same dismissal route as the UIToolbar's Done: resigning first responder runs
@@ -85,6 +99,21 @@ internal actual fun PlatformNumberInputField(
             host.show(state, style) { coordinator.resignFocus() }
         }
         onDispose { host?.hide(state) }
+    }
+
+    // Scroll self into view once focused. A Compose BasicTextField gets this for free; the field here
+    // is a UIKit subview, so focus lives in UIKit and Compose has no focus event to react to — a field
+    // low on the screen would just stay behind the keypad. Requested after the keypad has been
+    // published and measured, so the scroll targets the viewport the keypad has already shrunk rather
+    // than the full-height one.
+    //
+    // Keyed on the *target* height, not LocalNumberInputKeypadHeight: that one interpolates, so keying
+    // on it would restart this effect — cancelling and re-issuing the scroll — on every frame of the
+    // keypad's entrance. The target changes once, which is exactly the number of scrolls wanted.
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    val keypadTargetHeight = LocalNumberInputKeypadTargetHeight.current
+    LaunchedEffect(focused, keypadTargetHeight) {
+        if (focused) bringIntoViewRequester.bringIntoView()
     }
 
     // Refreshed every recomposition so the callbacks always close over the current state.
@@ -106,6 +135,10 @@ internal actual fun PlatformNumberInputField(
         focused = isFocused
         state.onFocusChanged(isFocused)
     }
+    // Whether suppressing the system keyboard is safe: only a host can draw the keypad that would
+    // replace it. Set here rather than read inside the coordinator because the host is a
+    // CompositionLocal. See NumberInputCoordinator.keypadHosted.
+    coordinator.keypadHosted = host != null
 
     UIKitView(
         factory = {
@@ -114,31 +147,24 @@ internal actual fun PlatformNumberInputField(
                 setDelegate(coordinator)
                 identify(TAG_FIELD)
                 setAdjustsFontForContentSizeCategory(true)
-                coordinator.attach(this, state, style)
+                coordinator.attach(this, state, resolvedStyle)
                 addTarget(
                     target = coordinator,
                     action = NSSelectorFromString("textChanged"),
                     forControlEvents = UIControlEventEditingChanged,
                 )
-                if (state.config.useBuiltInKeypad) {
-                    // An empty inputView is how UIKit is told a field supplies its own input: the
-                    // field still becomes first responder, so the caret shows and
-                    // textFieldDidEndEditing still fires the commit, but the system draws no
-                    // keyboard. A zero-size view rather than none at all — nil means "use the
-                    // default", which is the keyboard this is replacing.
-                    setInputView(UIView(frame = CGRectZero.readValue()))
-                    // No accessory view either: the Compose keypad carries the toolbar row itself,
-                    // and an accessory view attaches to the keyboard that is no longer there.
-                } else {
-                    setInputAccessoryView(coordinator.buildToolbar(style))
-                }
             }
         },
-        modifier = modifier,
+        modifier = modifier.bringIntoViewRequester(bringIntoViewRequester),
         update = { textField ->
-            coordinator.attach(textField, state, style)
+            coordinator.attach(textField, state, resolvedStyle)
             textField.setEnabled(enabled)
-            textField.applyStyle(style, enabled, state.config.placeholder)
+            textField.applyStyle(resolvedStyle, enabled, state.config.placeholder)
+
+            // Configured here rather than in `factory` so a changed config is honoured; `factory`
+            // runs once, which would pin the very first value for the view's lifetime.
+            coordinator.configureInputViews(resolvedStyle)
+
             // Same write path as a keystroke resync, so `lastWrittenText` tracks every write.
             coordinator.resyncText(displayText)
             coordinator.syncToolbar(
@@ -208,10 +234,70 @@ internal class NumberInputCoordinator : NSObject(), UITextFieldDelegateProtocol 
     private var clearItem: UIBarButtonItem? = null
     private var signItem: UIBarButtonItem? = null
 
+    /**
+     * The style from the latest `attach`. Held because the delegate callbacks UIKit invokes carry no
+     * style, and [textFieldDidBeginEditing] has to be able to build a toolbar.
+     */
+    private var lastStyle: NumberInputStyle = NumberInputStyle()
+
     fun attach(textField: UITextField, state: NumberInputState, style: NumberInputStyle) {
         this.textField = textField
         this.state = state
+        this.lastStyle = style
         updateToolbarLabels(style)
+    }
+
+    /** The zero-size view standing in for the system keyboard, built once and reused. */
+    private var suppressedInputView: UIView? = null
+
+    /**
+     * Whether a [NumberInputHost] is present to draw the built-in keypad. Refreshed by the composable
+     * each recomposition, like the callback properties above, because the delegate callbacks UIKit
+     * invokes carry no composition context.
+     *
+     * Suppressing the system keyboard is only safe when something else will draw a keypad. On Android
+     * the field falls back to rendering one inline beneath itself; the iOS field is a `UIKitView` with
+     * no such fallback, so without a host suppression left *no* keyboard and no keypad — a field that
+     * takes focus, shows a caret and cannot be typed into.
+     */
+    var keypadHosted: Boolean = false
+
+    /** The one condition for replacing the system keyboard: a keypad is wanted *and* drawable. */
+    private fun shouldSuppressSystemKeyboard(): Boolean =
+        state?.config?.useBuiltInKeypad == true && keypadHosted
+
+    /**
+     * Point the field at the input views its config calls for: an empty `inputView` to suppress the
+     * system keyboard for the built-in keypad, or the `UIToolbar` accessory for the default path.
+     *
+     * Idempotent, because [PlatformNumberInputField]'s `update` calls it on every recomposition.
+     *
+     * `nil` means "use the default input view" — the system keyboard, the thing being replaced — so
+     * suppression needs a real view of zero size rather than no view at all. The field still becomes
+     * first responder either way, which is what keeps the caret and the `textFieldDidEndEditing`
+     * commit intact.
+     *
+     * A keypad field with no host takes the `else` branch on purpose — see [keypadHosted]. It gets the
+     * system keyboard and the `UIToolbar`, which is the default path exactly: a wrong-looking decimal
+     * key rather than an unusable field, and the value is still correct because [NumberInputState]
+     * translates a keypad "." into the field's own separator regardless of which keyboard sent it.
+     */
+    fun configureInputViews(style: NumberInputStyle) {
+        val field = textField ?: return
+
+        if (shouldSuppressSystemKeyboard()) {
+            val suppressor = suppressedInputView
+                ?: UIView(frame = CGRectZero.readValue()).also { suppressedInputView = it }
+            if (field.inputView !== suppressor) field.setInputView(suppressor)
+            // No accessory either: the Compose keypad carries its own toolbar row, and an accessory
+            // view attaches to the keyboard that is no longer there.
+            if (field.inputAccessoryView != null) field.setInputAccessoryView(null)
+        } else {
+            if (field.inputView != null) field.setInputView(null)
+            if (field.inputAccessoryView == null) {
+                field.setInputAccessoryView(buildToolbar(style))
+            }
+        }
     }
 
     fun buildToolbar(style: NumberInputStyle): UIToolbar {
@@ -328,7 +414,25 @@ internal class NumberInputCoordinator : NSObject(), UITextFieldDelegateProtocol 
         textField?.resignFirstResponder()
     }
 
+    /**
+     * Re-assert this field's input views now that it holds focus, and make UIKit re-read them.
+     *
+     * Setting `inputView` is not enough on its own when focus moves *between* fields while a keyboard
+     * is already on screen. UIKit keeps presenting the outgoing responder's input view and never
+     * queries the incoming one, so tapping a keypad field straight after a system-keyboard field left
+     * the system keyboard up — the keypad drew underneath it, and the field it belonged to was covered.
+     * A cold tap worked, which is what made this look like a timing problem with `factory` rather than
+     * what it is. `reloadInputViews` is the documented way to force the re-read, and it is only valid
+     * while first responder, which is exactly here.
+     */
     override fun textFieldDidBeginEditing(textField: UITextField) {
+        // Only when actually suppressing: the system-keyboard path is what UIKit already carried over,
+        // so reloading there would dismiss and re-present an identical keyboard for nothing. That
+        // covers the hostless keypad field too, which is on the system-keyboard path by design.
+        if (shouldSuppressSystemKeyboard()) {
+            configureInputViews(lastStyle)
+            textField.reloadInputViews()
+        }
         onFocusChanged(true)
     }
 

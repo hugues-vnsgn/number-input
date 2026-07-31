@@ -21,6 +21,12 @@ import androidx.compose.ui.unit.sp
  *
  * Defaults are neutral rather than themed — this library depends on `compose.foundation`, not
  * Material, so it has no theme to read. Pass your own design system's values.
+ *
+ * The five colours this library draws itself — the built-in keypad's and its toolbar row's — are the
+ * exception: they default to [Color.Unspecified] and are resolved against the device's light/dark
+ * appearance rather than a fixed literal, since there is no design system for a consumer to bring for
+ * *those*. Set any of the five explicitly to opt out and pin one colour in both appearances. See
+ * [resolveThemedColors].
  */
 data class NumberInputStyle(
     val textColor: Color = Color.Black,
@@ -36,8 +42,10 @@ data class NumberInputStyle(
     val disabledAlpha: Float = 0.38f,
 
     // ----- Toolbar -----
-    val toolbarBackgroundColor: Color = Color(0xFFF2F2F7),
-    val toolbarTint: Color = Color(0xFF007AFF),
+    // Unspecified rather than a literal: these follow the system appearance unless you set them. See
+    // the class doc, and [resolveThemedColors] for the palettes.
+    val toolbarBackgroundColor: Color = Color.Unspecified,
+    val toolbarTint: Color = Color.Unspecified,
     /** Localise these — the defaults are English and will otherwise ship to every user. */
     val clearLabel: String = "Clear",
     val signLabel: String = "±",
@@ -47,9 +55,13 @@ data class NumberInputStyle(
     // Only used when NumberInputConfig.useBuiltInKeypad is on. Separate from the field's own colours
     // because the keypad stands in for the system keyboard: it should look like a keyboard sitting
     // under the content, not like a bigger version of the field.
-    val keypadBackgroundColor: Color = Color(0xFFD1D3D9),
-    val keyBackgroundColor: Color = Color.White,
-    val keyTextColor: Color = Color.Black,
+    // Unspecified rather than a literal: unlike the field's own colours, these are colours this
+    // library draws itself, so it can and does pick a sensible default for whichever appearance the
+    // device is in. Set any of the three to opt out and pin your own colour in both appearances — see
+    // [resolveThemedColors].
+    val keypadBackgroundColor: Color = Color.Unspecified,
+    val keyBackgroundColor: Color = Color.Unspecified,
+    val keyTextColor: Color = Color.Unspecified,
     val keyTextSize: TextUnit = 22.sp,
     val keyHeight: Dp = 48.dp,
     val keyCornerRadius: Dp = 5.dp,
