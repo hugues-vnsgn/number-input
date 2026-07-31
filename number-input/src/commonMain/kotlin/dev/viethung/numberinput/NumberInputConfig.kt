@@ -20,6 +20,13 @@ package dev.viethung.numberinput
  *   The keypad draws in Compose on both platforms and each suppresses its own keyboard —
  *   so it needs [NumberInputHost] to sit above the safe area, exactly as the Android toolbar does.
  *   Without a host it falls back to rendering inline beneath the field.
+ * @param keypadHaptics fire a light haptic on each accepted built-in-keypad press.
+ *
+ *   On by default: the keypad replaces the system keyboard, and a replacement that does not respond
+ *   to touch reads as broken next to the one it stands in for. Ignored on the system-keyboard path,
+ *   where the OS provides its own feedback. During a held backspace it fires once, on the initial
+ *   press — at the repeat interval a tick per delete is a continuous buzz rather than feedback, and
+ *   the platform generators are not built to be driven that fast.
  */
 data class NumberInputConfig(
     val significantDigits: Int = 3,
@@ -27,6 +34,7 @@ data class NumberInputConfig(
     val allowNegative: Boolean = true,
     val placeholder: String = "",
     val useBuiltInKeypad: Boolean = false,
+    val keypadHaptics: Boolean = true,
 ) {
     init {
         require(significantDigits in 0..9) {
