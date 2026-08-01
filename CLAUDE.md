@@ -72,10 +72,34 @@ item enablement from the same rules.
 **The built-in keypad (`NumberInputConfig.useBuiltInKeypad`, off by default)** is one Compose
 implementation shared by both platforms, not a Compose keypad plus a UIKit one — a keypad is a grid of
 buttons over shared state, with none of the caret/selection/input-method behaviour that forced the field
-itself to be native on iOS. Each platform only suppresses its own system keyboard: Android sets
-`readOnly = true` on the `BasicTextField` (focusable, so the caret and the focus-loss commit path
-survive; `enabled = false` would have taken focus with it), iOS gives the `UITextField` an empty
-`inputView` and drops the `inputAccessoryView`, since the Compose keypad carries the toolbar row itself.
+itself to be native on iOS. Each platform only suppresses its own system keyboard: Android wraps the
+`BasicTextField` in `InterceptPlatformTextInput` and simply never forwards the request to show an input
+method, iOS gives the `UITextField` an empty `inputView` and drops the `inputAccessoryView`, since the
+Compose keypad carries the toolbar row itself.
+
+Two rejected Android mechanisms, both of which look right and are not. `enabled = false` suppresses the
+keyboard but also refuses focus, taking the focus-loss commit path with it. `readOnly = true` keeps
+focus and the commit path — and **removes the caret**, because `CoreTextField` gates it on exactly that
+flag (`showCursor = enabled && !readOnly && ...`), whatever `cursorBrush` says. That shipped, because a
+caret is not something a compile or a state-level test can see and the Android path had never been run
+on a device; it was reported from a real screen. The intercept API is the seam Google added for custom
+keyboards (`disableSoftKeyboardSample`) and is the only one of the three that leaves the field a normal
+editable field.
+
+Making the caret visible then exposed a second defect it had been hiding: `BasicTextField`'s `String`
+overload owns its selection and only moves it for edits *it* is told about, so keypad presses — which
+write `rawText` from outside — left the caret stranded mid-number while digits appended behind it. The
+Android field therefore drives a `TextFieldValue`, **derived** rather than stored: while the buffer
+agrees with `rawText` the user's own caret survives (mid-number typing on the system keyboard still
+works), and when they disagree the field is rebuilt with the caret at the end. That one branch also
+repairs a keystroke the filter rejected, which mutates no state and so would otherwise leave the
+rejected character on screen — the counterpart of iOS's `resyncText()`.
+
+An editable field also draws a selection *handle*, which `cursorBrush` does not colour —
+`LocalTextSelectionColors` does, from the consumer's theme. The field provides it from `cursorColor` so
+the caret and its handle are one colour. This reaches unstyled fields too, since `cursorColor` defaults
+to an opaque black rather than a sentinel; that is deliberate, as their caret is already black and the
+handle was the thing out of step.
 Every press (`NumberInputState.pressDigit/pressDecimalSeparator/pressBackspace`) is expressed as a
 `rawText` edit and routed through the existing `onTextChange`, so the fraction cap, the one-separator
 rule and the keystroke filter apply to the keypad for free rather than being restated —
@@ -345,10 +369,21 @@ Note: `cmp/androidApp/src/main/AndroidManifest.xml` does **not** set
 correctly there until it does. Verify that before concluding a host/IME bug lives in this library.
 
 The sample carries a fifth field for the built-in keypad (de-DE, `useBuiltInKeypad = true`), which is
-how that path was verified on the iOS simulator. **The Android keypad path is compile-verified only** —
-no emulator or device was available, so `readOnly = true` suppressing the IME while keeping focus, the
-caret and the focus-loss commit is unconfirmed on a real Android runtime. That is the first thing to
-check there.
+how that path was verified on the iOS simulator.
+
+The Android keypad path has now been run too, on the `Medium_Phone_API_36.1` AVD (API 36) — that run is
+what turned up the missing caret described under Architecture. Confirmed there: the IME stays down
+(`adb shell dumpsys input_method | grep mInputShown` reads `false` while the keypad field holds focus,
+`true` on a plain field), the caret is drawn and tracks keypad inserts, backspace and Done commit, and
+the system-keyboard path still opens the IME and accepts mid-number edits.
+
+Caret presence needs a *burst* of screenshots, not one: a caret blinks, so a single frame showing none
+proves nothing. Sample ~10 frames at ~220 ms over the field's rectangle and diff them — a blinking caret
+shows a ~5px-wide, text-height difference bbox, and an entirely static burst means no caret is being
+drawn at all.
+
+Note `adb` coordinates are physical pixels (1080x2400 on that AVD), not the dp the iOS `describe-ui`
+frames are in; the two are not interchangeable when porting a tap script between platforms.
 
 A third tab, `NoHostKeypadSampleScreen` (`tabNoHostKeypad`), holds a keypad field composed **outside** any
 `NumberInputHost` — the hostless fail-safe, which the main screen cannot show because it wraps everything
@@ -363,9 +398,29 @@ A fourth tab, `OFNumpadSampleScreen` (`tabOFNumpad`), rebuilds the BFSOne OFNump
 frame from `numpad-design/OFNumpad Spec.html`. It is the proof that a real design is reachable through
 public parameters alone: every olive value lives in the sample's `OFNumpadTokens.kt`, none in the
 library. Its Amount field is `significantDigits = 0` (the spec's integer-VND rule), so the decimal key
-shows the *disabled* swatch without contriving anything, and its VAT field sets `allowNegative = false`,
-which removes ± and produces the spec's Quantity bar variant. Between them the two fields put all four
-key swatches and both bar variants on one screen.
+shows the *disabled* swatch without contriving anything; the Amount (USD) field beside it is
+`significantDigits = 2`, so its decimal key is disabled only conditionally; and its VAT field sets
+`allowNegative = false`, which removes ± and produces the spec's Quantity bar variant. Between them the
+three fields put all four key swatches and both bar variants on one screen.
+
+Both sig=2 fields open with the *whole keypad* greyed, which is not a colour bug: a seeded value is
+canonicalised to a full fraction (`1234.56`), and the cap correctly refuses another digit until
+something is deleted. Clear first when checking the live swatches or the decimal key.
+
+**The three fields deliberately do not share a locale**, because `locale` selects a number convention
+rather than a language — the screen's UI strings are Vietnamese whatever it is set to — so each field
+asks for the convention its own currency is written in. Amount is `vi-VN`: VND groups with `.`, giving
+`2.500.000`, which is both the CLDR convention and what the spec HTML shows. Amount (USD) and VAT stay
+`en-US`, giving `1,234.56` and `8.00`; under vi-VN they would read `1.234,56` and `8,00`.
+
+An earlier revision had all three on `en-US` to match a BFSOne house style that comma-groups VND. That
+was reversed — the spec and the locale agree on `.`, and it is not worth deviating from both. If the
+house style ever comes back it belongs on the two VND fields only, and the note should say so rather
+than being applied to the screen wholesale.
+
+The keypad's decimal key follows each field's own separator, so Amount offers `,` and the other two
+offer `.` — nothing separate to configure. Amount never reaches it in practice, being
+`significantDigits = 0`, so its decimal key stays disabled whatever the separator.
 
 Note the tab row now needs **two** swipes' worth of scrolling to reach it, and `tabOFNumpad` sits off
 screen at x≈440 on a 402pt device until you do — `describe-ui` will list it with an off-screen frame,
@@ -453,5 +508,7 @@ grep the installed binary — Kotlin/Native stores string literals as **UTF-16LE
   see the keypad note under Architecture for why a plain click-action assertion does not catch the
   defect this guards.
 - There are no instrumented Android UI tests wired up (`androidUnitTest` above is JVM-only), so the
-  built-in keypad's Android half (`readOnly` suppressing the IME) is compile-verified only — see the
-  caveat under "Sample app for end-to-end testing".
+  built-in keypad's Android half — keyboard suppression, and the caret it must not cost — is covered
+  only by the emulator procedure under "Sample app for end-to-end testing". Neither half is reachable
+  from a JVM test: `mInputShown` is an IME-service fact and a caret is pixels. Anything touching
+  `SuppressSoftKeyboard` or the field's `TextFieldValue` needs that run, not just a green suite.
