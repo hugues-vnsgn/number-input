@@ -1,0 +1,128 @@
+# Cuts a release from a tag: test every target, publish to Maven Central, open the GitHub release.
+#
+# Pushing `v2.1.0` is the whole trigger. The tag must match the `version` in
+# number-input/build.gradle.kts or the job stops before publishing anything — a tag that disagrees
+# with the built artifact is the one mistake here that cannot be taken back, since Central is
+# append-only and a released coordinate can never be replaced.
+#
+# `workflow_dispatch` does whatever its ref implies: run it on a branch to test and assemble without
+# publishing (do this once before the first real tag), or on an existing tag to retry a publish that
+# failed after the tag was already pushed.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  # Never let two publishes race. Not cancel-in-progress: interrupting a half-finished upload to
+  # Central is worse than waiting for it.
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write # creating the GitHub release
+
+jobs:
+  release:
+    # macOS is not a preference: iosX64/iosArm64/iosSimulatorArm64 klibs can only be produced here,
+    # and all targets must come out of one build so the root `kotlinMultiplatform` module and the
+    # per-target modules agree.
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # release notes are generated from history
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17 # AGP 8.7 floor; the library still targets JVM 11 bytecode
+
+      # The Android SDK is not preinstalled on the arm64 macOS images, unlike the old x86 ones.
+      # Cheap and idempotent where it is present.
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: true
+
+      - name: Check the tag matches the project version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF_NAME#v}"
+          project_version="$(sed -nE 's/^version = "(.*)"$/\1/p' number-input/build.gradle.kts)"
+          echo "tag=$tag_version project=$project_version"
+          if [ "$tag_version" != "$project_version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match version $project_version in number-input/build.gradle.kts"
+            exit 1
+          fi
+
+      # Fail before the build rather than 20 minutes later on a rejected upload. Signing in
+      # particular switches itself on only when a key is present, so a missing one would otherwise
+      # produce a quietly unsigned publication that Central refuses at the very end.
+      - name: Check publishing credentials are present
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          SIGNING_KEY: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in USERNAME PASSWORD SIGNING_KEY SIGNING_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Repository secret for $name is not set"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      # allTests covers commonTest + androidUnitTest on the JVM and iosTest on a simulator. The iOS
+      # half is the slow, environment-dependent one; it is still run, because it is the only place
+      # selector dispatch, KVC and the real UIToolbar are exercised.
+      - name: Test every target
+        run: ./gradlew :number-input:allTests --stacktrace
+
+      - name: Assemble
+        run: ./gradlew :number-input:assemble --stacktrace
+
+      - name: Publish to Maven Central
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          # The build reads these as Gradle properties; ORG_GRADLE_PROJECT_* is how they arrive from
+          # the environment.
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          # Store the ASCII-armoured secret key in the secret verbatim, with real newlines. The
+          # README's "newlines as \n" applies to ~/.gradle/gradle.properties, which cannot hold them;
+          # an env var can, and a key containing literal backslash-n will not parse.
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}
+        run: ./gradlew :number-input:publishAndReleaseToMavenCentral --no-parallel --stacktrace
+
+      - name: Create the GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Idempotent so a retried run after a failed publish does not abort on the release already
+          # existing.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists — leaving it alone."
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes \
+              --verify-tag
+          fi
+
+      - name: Note what this run did
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: echo 'Tests and assembly only — publishing requires a v* tag ref.' >> "$GITHUB_STEP_SUMMARY"

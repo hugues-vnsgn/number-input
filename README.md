@@ -434,7 +434,23 @@ by losing focus, and both platforms route Done through focus loss, so there is a
 <details>
 <summary>Releasing to Maven Central (maintainers)</summary>
 
-Publishing needs credentials that are not in this repo. Put them in `~/.gradle/gradle.properties`:
+Releases come from CI, so they do not depend on one laptop holding the keys. Bump `version` in
+`number-input/build.gradle.kts`, merge, then push a matching tag:
+
+```bash
+git tag -a v2.1.0 -m "2.1.0" && git push origin v2.1.0
+```
+
+`.github/workflows/release.yml` tests every target, publishes to Central and opens the GitHub
+release. It refuses to publish if the tag and the project version disagree, or if any of the four
+secrets below are unset — both before the build rather than after it. Run the workflow manually on a
+branch first if you want to prove it out; on a non-tag ref it tests and assembles without publishing.
+
+It needs four repository secrets: `MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_PASSWORD`,
+`SIGNING_IN_MEMORY_KEY` (the ASCII-armoured secret key, **with real newlines** — the `\n` form below
+is only for properties files, which cannot hold them) and `SIGNING_IN_MEMORY_KEY_PASSWORD`.
+
+To publish by hand instead, put the same credentials in `~/.gradle/gradle.properties`:
 
 ```properties
 mavenCentralUsername=<Central Portal token username>
