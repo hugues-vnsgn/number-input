@@ -10,21 +10,30 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.LocalTextSelectionColors
+import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.InterceptPlatformTextInput
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.PlatformTextInputInterceptor
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.awaitCancellation
 
 /**
  * Android rendering: a Compose `BasicTextField` with display-only grouping, plus the Clear / ± /
@@ -101,65 +110,103 @@ internal actual fun PlatformNumberInputField(
         onDispose { host?.hide(state) }
     }
 
-    Column(modifier = modifier) {
-        BasicTextField(
-            value = state.rawText,
-            onValueChange = state::onTextChange,
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag(TAG_FIELD)
-                .onFocusChanged { focusState ->
-                    if (focusState.isFocused != focused) {
-                        focused = focusState.isFocused
-                        state.onFocusChanged(focusState.isFocused)
-                    }
-                },
-            enabled = enabled,
-            // With the built-in keypad the field takes no direct text input: read-only keeps it
-            // focusable, and therefore keeps the caret and the focus-loss commit path, while stopping
-            // the IME from opening behind the keypad. `enabled = false` would have suppressed the
-            // keyboard too, but it also refuses focus, which would take the commit path with it.
-            readOnly = state.config.useBuiltInKeypad,
-            singleLine = true,
-            textStyle = TextStyle(
-                color = resolvedStyle.textColor.copy(alpha = resolvedStyle.textColor.alpha * contentAlpha),
-                fontSize = resolvedStyle.textSize,
-                fontWeight = resolvedStyle.textWeight,
-                textAlign = resolvedStyle.textAlign,
-            ),
-            visualTransformation = transformation,
-            cursorBrush = SolidColor(resolvedStyle.cursorColor),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-            decorationBox = { innerTextField ->
-                Box(
-                    modifier = Modifier
-                        .background(resolvedStyle.backgroundColor, shape)
-                        .border(
-                            resolvedStyle.borderWidth,
-                            resolvedStyle.borderColor.copy(
-                                alpha = resolvedStyle.borderColor.alpha * contentAlpha,
-                            ),
-                            shape,
-                        )
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                ) {
-                    if (state.rawText.isEmpty() && state.config.placeholder.isNotEmpty()) {
-                        BasicText(
-                            text = state.config.placeholder,
-                            style = TextStyle(
-                                color = resolvedStyle.placeholderColor.copy(
-                                    alpha = resolvedStyle.placeholderColor.alpha * contentAlpha,
-                                ),
-                                fontSize = resolvedStyle.textSize,
-                                fontWeight = resolvedStyle.textWeight,
-                                textAlign = resolvedStyle.textAlign,
-                            ),
-                        )
-                    }
-                    innerTextField()
-                }
-            },
+    // The caret has to be tracked here, not left to BasicTextField's String overload.
+    //
+    // That overload owns its selection internally and only updates it from edits it is told about.
+    // A keypad press is not one: it writes `rawText` from the outside, so the caret stays at
+    // whatever offset it last held and the appended digits land behind it — `2.500.000|.777`.
+    // Invisible until the caret was, which is why this surfaced with the fix above.
+    //
+    // Deriving the value rather than storing it keeps this out of a back-write: while the buffer
+    // agrees with `rawText` the user's own caret is preserved (typing mid-number on the system
+    // keyboard still works), and the moment they disagree the field is rebuilt from `rawText` with
+    // the caret at the end. That second branch covers two cases at once — a keypad insert, and a
+    // keystroke the filter *rejected*, which changes no state and so would otherwise leave the
+    // rejected character on screen. It is the counterpart of the iOS field's `resyncText()`.
+    val buffer = remember { mutableStateOf(TextFieldValue()) }
+    val fieldValue = if (buffer.value.text == state.rawText) {
+        buffer.value
+    } else {
+        TextFieldValue(state.rawText, TextRange(state.rawText.length))
+    }
+
+    // The caret's drag handle and the selection highlight are not drawn from `cursorBrush` — they come
+    // from LocalTextSelectionColors, i.e. the consumer's theme. Left alone, a styled field draws its
+    // own caret and a handle in someone else's colour, which is visible the moment the two disagree:
+    // an olive field on a purple-themed app grows a purple teardrop under an olive caret.
+    //
+    // Deriving both from `cursorColor` keeps the caret and its furniture one colour. Note this reaches
+    // fields that never opted into styling as well, since `cursorColor` defaults to an opaque black
+    // rather than a sentinel — but their caret is already that black, so the handle is being brought
+    // into line with the caret rather than away from the theme.
+    val selectionColors = remember(resolvedStyle.cursorColor) {
+        TextSelectionColors(
+            handleColor = resolvedStyle.cursorColor,
+            backgroundColor = resolvedStyle.cursorColor.copy(alpha = 0.4f),
         )
+    }
+
+    Column(modifier = modifier) {
+        CompositionLocalProvider(LocalTextSelectionColors provides selectionColors) {
+            SuppressSoftKeyboard(suppress = state.config.useBuiltInKeypad) {
+                BasicTextField(
+                    value = fieldValue,
+                    onValueChange = { edited ->
+                        buffer.value = edited
+                        state.onTextChange(edited.text)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag(TAG_FIELD)
+                        .onFocusChanged { focusState ->
+                            if (focusState.isFocused != focused) {
+                                focused = focusState.isFocused
+                                state.onFocusChanged(focusState.isFocused)
+                            }
+                        },
+                    enabled = enabled,
+                    singleLine = true,
+                    textStyle = TextStyle(
+                        color = resolvedStyle.textColor.copy(alpha = resolvedStyle.textColor.alpha * contentAlpha),
+                        fontSize = resolvedStyle.textSize,
+                        fontWeight = resolvedStyle.textWeight,
+                        textAlign = resolvedStyle.textAlign,
+                    ),
+                    visualTransformation = transformation,
+                    cursorBrush = SolidColor(resolvedStyle.cursorColor),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    decorationBox = { innerTextField ->
+                        Box(
+                            modifier = Modifier
+                                .background(resolvedStyle.backgroundColor, shape)
+                                .border(
+                                    resolvedStyle.borderWidth,
+                                    resolvedStyle.borderColor.copy(
+                                        alpha = resolvedStyle.borderColor.alpha * contentAlpha,
+                                    ),
+                                    shape,
+                                )
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                        ) {
+                            if (state.rawText.isEmpty() && state.config.placeholder.isNotEmpty()) {
+                                BasicText(
+                                    text = state.config.placeholder,
+                                    style = TextStyle(
+                                        color = resolvedStyle.placeholderColor.copy(
+                                            alpha = resolvedStyle.placeholderColor.alpha * contentAlpha,
+                                        ),
+                                        fontSize = resolvedStyle.textSize,
+                                        fontWeight = resolvedStyle.textWeight,
+                                        textAlign = resolvedStyle.textAlign,
+                                    ),
+                                )
+                            }
+                            innerTextField()
+                        }
+                    },
+                )
+            }
+        }
 
         // Fallback only — with a host, this is drawn there instead: the toolbar pinned to the
         // keyboard, or the keypad above the safe area.
@@ -187,5 +234,39 @@ internal actual fun PlatformNumberInputField(
             }
         }
     }
+}
+
+/**
+ * Stops the IME opening behind the built-in keypad, without making the field read-only.
+ *
+ * `readOnly = true` is the obvious way to do this and is wrong in a way that is invisible until you
+ * look at a running field: `CoreTextField` gates the caret on it —
+ * `showCursor = enabled && !readOnly && ...` — so a read-only field keeps focus and keeps the
+ * focus-loss commit path, but draws no caret at all, whatever `cursorBrush` says. The iOS field
+ * never had the problem because suppression there is an empty `inputView`, which UIKit does not
+ * connect to the caret.
+ *
+ * [InterceptPlatformTextInput] suppresses at the right seam instead: the field stays editable, and
+ * the request to *show* an input method is simply never passed to the next handler. Not calling
+ * [PlatformTextInputSession.startInputMethod] is the documented way to block it, and the suspend
+ * function must not return, hence [awaitCancellation].
+ *
+ * The interceptor is keyed on [suppress] so that flipping `useBuiltInKeypad` mid-focus tears down
+ * and restarts the upstream session; a stable instance would leave the old decision in force until
+ * the field was focused again.
+ *
+ * Note the fail-safe that iOS needs has no counterpart here: suppression is unconditional because
+ * the Android field always has a keypad to fall back on — the host's, or the inline one it draws
+ * itself — so it can never end up with no keyboard and no keypad.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun SuppressSoftKeyboard(suppress: Boolean, content: @Composable () -> Unit) {
+    val interceptor = remember(suppress) {
+        PlatformTextInputInterceptor { request, nextHandler ->
+            if (suppress) awaitCancellation() else nextHandler.startInputMethod(request)
+        }
+    }
+    InterceptPlatformTextInput(interceptor = interceptor, content = content)
 }
 
