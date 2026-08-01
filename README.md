@@ -66,7 +66,7 @@ dependencyResolutionManagement {
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("dev.viethung:number-input:2.0.0")
+            implementation("dev.viethung:number-input:2.1.0")
         }
     }
 }
@@ -78,7 +78,7 @@ kotlin {
 ```toml
 # gradle/libs.versions.toml
 [versions]
-numberInput = "2.0.0"
+numberInput = "2.1.0"
 
 [libraries]
 number-input = { module = "dev.viethung:number-input", version.ref = "numberInput" }
