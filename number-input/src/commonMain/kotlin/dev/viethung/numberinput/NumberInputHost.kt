@@ -388,7 +388,7 @@ internal fun NumberInputToolbarBar(
         horizontalArrangement = Arrangement.spacedBy(toolbar.itemSpacing),
     ) {
         leadingAccessory?.let { accessory ->
-            Box(Modifier.testTag(TAG_TOOLBAR_LOGO)) { accessory() }
+            Box(Modifier.testTag(NumberInputTags.TOOLBAR_LOGO)) { accessory() }
         }
         if (onPrevious != null) {
             ToolbarAction(
@@ -396,7 +396,7 @@ internal fun NumberInputToolbarBar(
                 enabled = true,
                 chrome = toolbar.navigation,
                 style = style,
-                testTag = TAG_TOOLBAR_PREVIOUS,
+                testTag = NumberInputTags.TOOLBAR_PREVIOUS,
                 onClick = onPrevious,
                 icon = toolbar.previousIcon,
                 contentDescription = toolbar.previousContentDescription,
@@ -408,7 +408,7 @@ internal fun NumberInputToolbarBar(
                 enabled = true,
                 chrome = toolbar.navigation,
                 style = style,
-                testTag = TAG_TOOLBAR_NEXT,
+                testTag = NumberInputTags.TOOLBAR_NEXT,
                 onClick = onNext,
                 icon = toolbar.nextIcon,
                 contentDescription = toolbar.nextContentDescription,
@@ -425,7 +425,7 @@ internal fun NumberInputToolbarBar(
                     fontFamily = toolbar.fontFamily,
                     textAlign = TextAlign.Center,
                 ),
-                modifier = Modifier.weight(1f).testTag(TAG_TOOLBAR_HINT),
+                modifier = Modifier.weight(1f).testTag(NumberInputTags.TOOLBAR_HINT),
             )
         } else {
             Spacer(Modifier.weight(1f))
@@ -437,7 +437,7 @@ internal fun NumberInputToolbarBar(
                 enabled = state.signEnabled,
                 chrome = toolbar.action,
                 style = style,
-                testTag = TAG_SIGN,
+                testTag = NumberInputTags.TOOLBAR_SIGN,
                 onClick = state::toggleSign,
             )
         }
@@ -446,7 +446,7 @@ internal fun NumberInputToolbarBar(
             enabled = state.clearEnabled,
             chrome = toolbar.action,
             style = style,
-            testTag = TAG_CLEAR,
+            testTag = NumberInputTags.TOOLBAR_CLEAR,
             onClick = state::clear,
         )
         ToolbarAction(
@@ -454,7 +454,7 @@ internal fun NumberInputToolbarBar(
             enabled = true,
             chrome = toolbar.done,
             style = style,
-            testTag = TAG_DONE,
+            testTag = NumberInputTags.TOOLBAR_DONE,
             onClick = onDone,
         )
     }

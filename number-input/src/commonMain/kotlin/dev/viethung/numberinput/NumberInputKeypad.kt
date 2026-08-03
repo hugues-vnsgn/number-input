@@ -81,7 +81,7 @@ internal fun NumberInputKeypad(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .testTag(TAG_KEYPAD)
+            .testTag(NumberInputTags.KEYPAD)
             .background(style.keypad.backgroundColor),
     ) {
         NumberInputToolbarBar(
@@ -167,7 +167,7 @@ private fun DigitKey(
         enabled = state.digitEnabled,
         role = style.keypad.restKey,
         style = style,
-        testTag = keypadDigitTag(digit),
+        testTag = NumberInputTags.keypadDigit(digit),
         onClick = rememberHapticPress(state) { state.pressDigit(digit) },
         modifier = modifier,
     )
@@ -181,7 +181,7 @@ private fun DecimalKey(state: NumberInputState, style: NumberInputStyle, modifie
         enabled = state.decimalEnabled,
         role = style.keypad.utilityKey,
         style = style,
-        testTag = TAG_KEYPAD_DECIMAL,
+        testTag = NumberInputTags.KEYPAD_DECIMAL,
         // "." and "," are punctuation: a screen reader may announce the glyph as nothing at all, and
         // the two are indistinguishable spoken even when it does. The label stays the glyph.
         contentDescription = style.keypad.decimalContentDescription,
@@ -221,7 +221,7 @@ private fun BackspaceKey(state: NumberInputState, style: NumberInputStyle, modif
         enabled = enabled,
         role = style.keypad.utilityKey,
         style = style,
-        testTag = TAG_KEYPAD_BACKSPACE,
+        testTag = NumberInputTags.KEYPAD_BACKSPACE,
         // The glyph is a symbol, so it needs a spoken name of its own — a screen reader would
         // otherwise announce the character itself, or nothing.
         contentDescription = style.keypad.backspaceContentDescription,

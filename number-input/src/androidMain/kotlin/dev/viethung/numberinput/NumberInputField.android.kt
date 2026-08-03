@@ -157,7 +157,7 @@ internal actual fun PlatformNumberInputField(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .testTag(TAG_FIELD)
+                        .testTag(NumberInputTags.FIELD)
                         .onFocusChanged { focusState ->
                             if (focusState.isFocused != focused) {
                                 focused = focusState.isFocused
@@ -170,6 +170,7 @@ internal actual fun PlatformNumberInputField(
                         color = resolvedStyle.textColor.copy(alpha = resolvedStyle.textColor.alpha * contentAlpha),
                         fontSize = resolvedStyle.textSize,
                         fontWeight = resolvedStyle.textWeight,
+                        fontFamily = resolvedStyle.fontFamily,
                         textAlign = resolvedStyle.textAlign,
                     ),
                     visualTransformation = transformation,
@@ -197,6 +198,7 @@ internal actual fun PlatformNumberInputField(
                                         ),
                                         fontSize = resolvedStyle.textSize,
                                         fontWeight = resolvedStyle.textWeight,
+                                        fontFamily = resolvedStyle.fontFamily,
                                         textAlign = resolvedStyle.textAlign,
                                     ),
                                 )
