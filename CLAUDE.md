@@ -6,7 +6,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A Compose Multiplatform (Android + iOS) library publishing a single component: a locale-aware numeric
 text field with live thousands grouping and a Clear / ± / Done keyboard toolbar. Gradle root project
-`number-input` with one module, `:number-input`, coordinates `dev.viethung:number-input`.
+`number-input` with one module, `:number-input`, coordinates `io.github.hugues-vnsgn:number-input`.
+
+**The coordinate and the package deliberately disagree.** Artifacts publish under
+`io.github.hugues-vnsgn`, while the Kotlin package and the Android namespace stay
+`dev.viethung.numberinput`. That is not drift to tidy up. Maven Central verifies a namespace against a
+domain you own, `viethung.dev` was never registered, and `io.github.<github-username>` is the one
+namespace Sonatype provisions automatically. A groupId is a publishing coordinate and a package is an
+import path; nothing requires them to match, and renaming the package to close the gap would break
+every consumer's imports to fix something no consumer can see. If `viethung.dev` is ever bought, the
+groupId can move back on its own.
 
 It is a Kotlin port of an existing Swift library (`NumberInputKit`) plus an Android-only predecessor.
 Comments reference the Swift originals (`NumberInputToolbarRules.swift`,
@@ -344,7 +353,7 @@ end (`WindowInsets.ime` reads 0 inside a separate window). Don't reintroduce it.
 
 `/Users/hugues_mini/Codes/cmp` is a separate CMP app (`:androidApp`, `:shared`, `iosApp/`) that
 consumes this library and can be launched on a device/simulator. It resolves
-`dev.viethung:number-input` from **mavenLocal** at the version pinned in that repo's
+`io.github.hugues-vnsgn:number-input` from **mavenLocal** at the version pinned in that repo's
 `gradle/libs.versions.toml` (`numberInput`), so any change here must be published before the app sees
 it — and a version bump here needs the same bump there:
 

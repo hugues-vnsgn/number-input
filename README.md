@@ -66,7 +66,7 @@ dependencyResolutionManagement {
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("dev.viethung:number-input:2.2.0")
+            implementation("io.github.hugues-vnsgn:number-input:2.2.0")
         }
     }
 }
@@ -81,7 +81,7 @@ kotlin {
 numberInput = "2.2.0"
 
 [libraries]
-number-input = { module = "dev.viethung:number-input", version.ref = "numberInput" }
+number-input = { module = "io.github.hugues-vnsgn:number-input", version.ref = "numberInput" }
 ```
 
 ```kotlin
