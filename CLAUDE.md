@@ -31,6 +31,7 @@ elements.
 ./gradlew :number-input:allTests                 # every target, aggregated report
 ./gradlew :number-input:assemble                 # Android AAR + iOS klibs
 ./gradlew :number-input:publishToMavenLocal      # consume from another project via mavenLocal()
+./gradlew :sample-android:installDebug           # the Android proving ground, straight from source
 ```
 
 Single test class / method — `--tests` works on both the JVM and the Native task:
@@ -407,9 +408,38 @@ cd <bfsone-worktree> && ./gradlew :composeApp:installDebug     # Android
 
 The standing rule this cost us: **a sample must run the library's declared floor, and must exercise
 the parameter you are testing.** `cmp` failed both — it was on CMP 1.11 and never set `textAlign` — and
-the result was four defects that shipped looking verified. The durable fix is a `:sample-android`
-module inside *this* repo, which reads this repo's own `libs.versions.toml` and so cannot drift; that
-is not built yet.
+the result was four defects that shipped looking verified.
+
+### `:sample-android` — the Android proving ground
+
+```bash
+./gradlew :sample-android:installDebug
+adb shell monkey -p dev.viethung.numberinput.sample -c android.intent.category.LAUNCHER 1
+```
+
+Two properties make it structurally unable to repeat the `cmp` failure, and both would be lost by
+moving it out of this repo. It reads the **same** `gradle/libs.versions.toml` as `:number-input`, so it
+cannot be on a different Kotlin/Compose/AGP than the library it tests — raising the floor moves both at
+once. And it depends on `project(":number-input")`, so there is **no `publishToMavenLocal` round-trip**:
+edit the library, `installDebug`, look at it.
+
+It is foundation-only and uses a bare platform theme on purpose. Material chrome around a field looks
+enough like the library's own border to hide a wrong one.
+
+Its six cases are chosen by one rule — **each is something `cmp` could not show**: `textAlign = End`
+(silently ignored before 2.3.0), `textAlign = Center` (distinguishes "alignment is read" from
+"alignment is stuck at End"), `borderWidth = 0.dp` on a tinted fill (the hairline, visible against the
+tint), an explicit 56dp height with a contrasting fill (the wrap-content-height bug), asymmetric
+`contentPadding`, and the de-DE keypad last in the column so it is the field most likely to be covered
+— which is what makes the published keypad inset testable rather than theoretical.
+
+**Adding a property to `NumberInputStyle` without adding a case here re-opens the same gap.** That is
+the whole lesson of 2.3.0, and it is cheap to honour.
+
+Note only the *start* half of `contentPadding` is visible in that case: the text is start-aligned and
+never reaches the trailing inset, so the end value and the RTL swap are pinned by
+`IosFieldContentPaddingTest` instead. There is no iOS counterpart to this module — iOS still needs a
+consuming app, since a `UIKitView` needs a real `ComposeUIViewController` host.
 
 ### Measuring Android layout from a screenshot
 

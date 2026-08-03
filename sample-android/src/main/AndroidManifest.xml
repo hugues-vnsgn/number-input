@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:label="number-input sample"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.NumberInputSample">
+
+        <!--
+          windowSoftInputMode="adjustResize" is not optional and not a sample convenience: it is what
+          makes WindowInsets.ime report a real height, which is what NumberInputHost's imePadding()
+          tracks the keyboard with. Without it the toolbar does not follow the IME, and the library
+          cannot supply it — a manifest belongs to the app. The README asks consumers for exactly
+          this, so the sample has to model it.
+        -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

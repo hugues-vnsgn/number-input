@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 rootProject.name = "number-input"
 
 include(":number-input")
+include(":sample-android")
