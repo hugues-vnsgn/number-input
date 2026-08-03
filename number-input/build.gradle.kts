@@ -10,7 +10,7 @@ plugins {
     alias(libs.plugins.maven.publish)
 }
 
-group = "dev.viethung"
+group = "io.github.hugues-vnsgn"
 version = "2.2.0"
 
 kotlin {
