@@ -126,10 +126,20 @@ the keypad itself worked:
 
 - **It publishes its own inset.** Compose exposes the system keyboard as `WindowInsets.ime`, so
   `imePadding()` keeps content clear of it; nothing does that for a keypad the library draws. The host
-  measures the keypad (after `navigationBarsPadding`, so the figure covers everything below its top
-  edge) and publishes `LocalNumberInputKeypadHeight`, with `Modifier.numberInputKeypadPadding()` as the
-  `imePadding()` counterpart. It is measured, not computed from `keyHeight` — the toolbar row, row
-  spacing and nav-bar inset all contribute. `onSizeChanged` does not fire on removal, so a
+  measures the keypad and publishes `LocalNumberInputKeypadHeight`, with
+  `Modifier.numberInputKeypadPadding()` as the `imePadding()` counterpart. It is measured, not computed
+  from `keyHeight` — the toolbar row, row spacing and nav-bar inset all contribute.
+
+  **The navigation-bar inset lives inside `NumberInputKeypad`, after its background, and moving it
+  back out breaks two things at once** (it was outside, in the host's `bottom` chain, until 2.3.0).
+  Insetting the whole keypad inset its *background* too, so the screen showed through beneath it —
+  a real keyboard paints to the physical edge and holds only its keys clear. And because
+  `onSizeChanged` sits inside that same chain, the published height came out short by the
+  navigation bar, so `numberInputKeypadPadding()` reserved too little. The comment there used to
+  claim the opposite; modifier order is what decides it, and the order said otherwise. The toolbar
+  path still takes the inset in the host, having no background of its own to run to the edge.
+
+  `onSizeChanged` does not fire on removal, so a
   `DisposableEffect` resets it or the reserved space outlives the keypad. Consumers must apply it
   **before** `verticalScroll`: padding the container shrinks the viewport, which is what makes a
   focused field scrollable out from behind the keypad, whereas padding the content leaves the obscured
@@ -285,6 +295,32 @@ failure are silent, so the name is worth one look on a device. A named face carr
 `textWeight` stops selecting one on that branch and applies only to the fallback; `IosFieldFontTest`
 pins both branches and that asymmetry.
 
+**The field's box was wrong in four ways until 2.3.0, and all four were invisible to every test task
+this repo has.** They are recorded together because they were found together, on a device, and because
+each one individually reads as a design decision rather than a defect:
+
+- `textAlign` was accepted and silently ignored on Android. Passing it down in a `TextStyle` cannot
+  work: `singleLine = true` wraps the text in a horizontal scroll modifier that measures it at its own
+  natural width (`TextFieldScroll.kt`), so the alignment has no space to act in. What moves the text is
+  aligning the *node* — `toHorizontalAlignment()`, a full-width `Column` inside the decoration box.
+  Aligning the node is also correct when the text outgrows the field, where it becomes a no-op and the
+  scrolling is untouched.
+- `borderWidth = 0.dp` drew a 1px hairline. `Border.kt` guards on `width.toPx() >= 0f` — zero passes —
+  and the resulting `Stroke(0f)` is a hairline, not nothing. iOS's `setBorderWidth(0.0)` really does
+  draw nothing, so the same style rendered differently per platform. The modifier is now guarded.
+- The decoration box wrapped its content vertically, so a field given an explicit height drew ~40dp of
+  background and border inside it and sat against the top. `fillMaxSize()` plus `CenterStart` fixes it.
+  It already filled the *width* — `CoreTextField` wraps the decoration box in a Box with
+  `propagateMinConstraints = true`, identically in CMP 1.9.0 and 1.11.x — so a `fillMaxWidth()` there
+  is inert, and anyone diagnosing this as a width problem will fix nothing.
+- Padding was hardcoded on Android and absent on iOS. It is now `NumberInputStyle.contentPadding`,
+  applied on both. iOS needs a `UITextField` subclass (`NumberInputTextField`) overriding all three
+  rect methods, since UIKit has no content-inset property — see the KDoc for why one or two overrides
+  looks correct until the field is focused or emptied.
+
+The reason these survived: the `cmp` sample never set `textAlign` at all, and drew its border at
+1.5dp, so none of the four had a way to show. A sample only proves the parameters it exercises.
+
 **Rendering (`PlatformNumberInputField`, `expect`/`actual`)** is where the two platforms diverge most:
 
 - *Android* (`NumberInputField.android.kt`): a `BasicTextField` whose buffer stays ungrouped;
@@ -351,16 +387,39 @@ end (`WindowInsets.ime` reads 0 inside a separate window). Don't reintroduce it.
 
 ## Sample app for end-to-end testing
 
-`/Users/hugues_mini/Codes/cmp` is a separate CMP app (`:androidApp`, `:shared`, `iosApp/`) that
-consumes this library and can be launched on a device/simulator. It resolves
-`io.github.hugues-vnsgn:number-input` from **mavenLocal** at the version pinned in that repo's
-`gradle/libs.versions.toml` (`numberInput`), so any change here must be published before the app sees
-it — and a version bump here needs the same bump there:
+**`/Users/hugues_mini/Codes/cmp` is no longer a valid proving ground, and was not one for the 2.2.0
+work either.** It has drifted to Kotlin 2.4.10 / CMP 1.11.1 / AGP 9.0.1 while this library and its
+primary consumer are both on 2.2.20 / 1.9.0 / 8.7.3 — so every pixel verification recorded below was
+run against a Compose no consumer has. It also declares no `iosX64`, which is the target the version
+floor exists to protect, and it is **not a git repository**, so there is nothing to roll back to. Its
+`:shared` module uses `com.android.kotlin.multiplatform.library`, an AGP 9 plugin, so pinning it back
+is a build-script rewrite rather than a version edit. Don't reach for it.
+
+Verification now runs against **BFSOne** (`/Users/hugues_mini/Codes/Mobiles/BFSOne_Mobile_App`, the
+`feat-of-number-formatter` worktree), which is on the exact consumer toolchain and is git-tracked. It
+does **not** declare `mavenLocal()`, so a dry-run needs it added to `settings.gradle.kts` temporarily
+— and reverted before merging:
 
 ```bash
 ./gradlew :number-input:publishToMavenLocal                    # in this repo, first
-cd /Users/hugues_mini/Codes/cmp && ./gradlew :androidApp:assembleDebug
+cd <bfsone-worktree> && ./gradlew :composeApp:installDebug     # Android
 ```
+
+The standing rule this cost us: **a sample must run the library's declared floor, and must exercise
+the parameter you are testing.** `cmp` failed both — it was on CMP 1.11 and never set `textAlign` — and
+the result was four defects that shipped looking verified. The durable fix is a `:sample-android`
+module inside *this* repo, which reads this repo's own `libs.versions.toml` and so cannot drift; that
+is not built yet.
+
+### Measuring Android layout from a screenshot
+
+The four 2.3.0 box defects were all found this way, and `uiautomator dump` alone would not have found
+any of them — Compose merges semantics, so the field, its decoration box and its text arrive as one
+node with one set of bounds. Measure pixels instead: locate the field by its **border colour**, then
+find the text as the dark (or bright, on dark backgrounds) pixels inside it, and compare gaps against
+`border + contentPadding`. On the `Medium_Phone_API_36.1` AVD the density is 420, i.e. **2.625 px/dp** —
+`adb` coordinates are physical pixels and are not interchangeable with the points iOS `describe-ui`
+reports. Allow ~1dp of slack for antialiasing and glyph side bearings; a real misalignment is tens of dp.
 
 For iOS e2e (build, boot simulator, install, launch, UI interaction), **use xcodeBuildMCP** rather
 than shelling out to `xcodebuild`/`simctl`. It is registered project-scoped in this repo's `.mcp.json`
@@ -560,3 +619,15 @@ grep the installed binary — Kotlin/Native stores string literals as **UTF-16LE
   only by the emulator procedure under "Sample app for end-to-end testing". Neither half is reachable
   from a JVM test: `mInputShown` is an IME-service fact and a caret is pixels. Anything touching
   `SuppressSoftKeyboard` or the field's `TextFieldValue` needs that run, not just a green suite.
+
+  **The field's own box is in the same hole, and 2.3.0 is what that cost.** Alignment, the border
+  hairline, the wrap-content height — all four defects are geometry, none is reachable from any test
+  task here, and all four shipped. What *is* pinned is the part that can be: `NumberInputAlignmentTest`
+  (`commonTest`) resolves `toHorizontalAlignment()` to actual offsets in both layout directions rather
+  than comparing alignment objects, because `Alignment.Start` and `AbsoluteAlignment.Left` are
+  different objects that agree in LTR — an identity assertion passes while RTL is wrong.
+  `IosFieldContentPaddingTest` (`iosTest`) asserts all three `UITextField` rect overrides separately,
+  since checking only `textRectForBounds` passes against a field that jumps on focus. Adding
+  Robolectric would close the Android half; it was considered for 2.3.0 and deliberately deferred,
+  because a shadow text-measurement backend is a poor thing to trust for the one test you would be
+  trusting. Until then, geometry changes need the AVD.

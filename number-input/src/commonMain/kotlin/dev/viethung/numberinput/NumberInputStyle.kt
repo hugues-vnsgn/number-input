@@ -1,5 +1,8 @@
 package dev.viethung.numberinput
 
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.AbsoluteAlignment
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -42,6 +45,18 @@ data class NumberInputStyle(
     val textWeight: FontWeight = FontWeight.Normal,
     val textAlign: TextAlign = TextAlign.Start,
     /**
+     * Space between the field's edge and its text, on **both** platforms.
+     *
+     * Until 2.3.0 this was hardcoded to these values on Android and absent entirely on iOS, where a
+     * `UITextField` draws flush to its own bounds — so the same style produced text 12dp in on one
+     * platform and against the border on the other. The default preserves the Android rendering and
+     * moves iOS onto it, which is a visible change for an iOS field on upgrade.
+     *
+     * The vertical half is close to inert on iOS: a `UITextField` centres a single line in whatever
+     * height it is given, so vertical padding shifts the text only when the two are asymmetric.
+     */
+    val contentPadding: PaddingValues = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+    /**
      * Typeface for the **Compose** renderer — the Android field. Ignored on iOS, which hosts a
      * `UITextField`; give that one [iosFontName].
      *
@@ -81,3 +96,28 @@ data class NumberInputStyle(
     val toolbar: NumberInputToolbarStyle = NumberInputToolbarStyle(),
     val keypad: NumberInputKeypadStyle = NumberInputKeypadStyle(),
 )
+
+/**
+ * [TextAlign] read as a layout alignment, for positioning the Android field's text *node*.
+ *
+ * Passing `textAlign` down in a `TextStyle` is not enough on Android and never was. A single-line
+ * `BasicTextField` is wrapped in a horizontal scroll modifier that measures the text at its own
+ * natural width (`TextFieldScroll.kt`), so the text node ends up exactly as wide as its glyphs and
+ * `textAlign` has nothing left to align *within* — the value stayed at the start of the field however
+ * the style was set. iOS never had the problem, because `setTextAlignment` positions text inside the
+ * `UITextField`'s full bounds.
+ *
+ * Aligning the node inside a full-width box is what actually moves the text. When the text outgrows
+ * the field the node fills the width and this becomes a no-op, leaving the scroll behaviour alone.
+ *
+ * [Alignment.Start] and [Alignment.End] are resolved against the layout direction, so `TextAlign.End`
+ * stays correct in RTL; `Left`/`Right` are absolute by definition and map to [AbsoluteAlignment].
+ * `Justify` has no meaning for one line and reads as `Start`, which is where it would begin anyway.
+ */
+internal fun TextAlign.toHorizontalAlignment(): Alignment.Horizontal = when (this) {
+    TextAlign.End -> Alignment.End
+    TextAlign.Center -> Alignment.CenterHorizontally
+    TextAlign.Left -> AbsoluteAlignment.Left
+    TextAlign.Right -> AbsoluteAlignment.Right
+    else -> Alignment.Start
+}

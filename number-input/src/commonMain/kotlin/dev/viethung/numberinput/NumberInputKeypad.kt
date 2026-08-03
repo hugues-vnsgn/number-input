@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -82,7 +83,13 @@ internal fun NumberInputKeypad(
         modifier = modifier
             .fillMaxWidth()
             .testTag(NumberInputTags.KEYPAD)
-            .background(style.keypad.backgroundColor),
+            // Background first, inset second, so the fill runs to the physical bottom edge while the
+            // keys stay clear of the home indicator — which is what a real soft keyboard does. Insetting
+            // the whole keypad instead (as the host did until 2.3.0) left the screen showing through
+            // underneath it, and made the height published to `LocalNumberInputKeypadHeight` short by
+            // the navigation bar, since that is measured on this node.
+            .background(style.keypad.backgroundColor)
+            .navigationBarsPadding(),
     ) {
         NumberInputToolbarBar(
             state = state,

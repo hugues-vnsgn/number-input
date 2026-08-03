@@ -181,11 +181,17 @@ fun NumberInputHost(
                 //
                 // No imePadding when the keypad is showing: it *replaces* the system keyboard, which
                 // both platforms suppress, so that inset is zero and reserving space for it would
-                // leave a gap. The navigation-bar inset still applies — the keypad's bottom row would
-                // otherwise sit under the home indicator.
-                val bottom = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
+                // leave a gap.
+                //
+                // The navigation-bar inset is *not* applied here for the keypad. It belongs inside
+                // [NumberInputKeypad], between its background and its keys, so the fill reaches the
+                // physical bottom edge and only the keys are held clear of the home indicator. Applying
+                // it out here inset the background too, which left the screen visible under the keypad
+                // and — because `onSizeChanged` below sits inside this chain — published a height short
+                // by the navigation bar, so `numberInputKeypadPadding()` reserved too little. The
+                // toolbar path still takes the inset here, having no background of its own to run to
+                // the edge.
+                val bottom = Modifier.align(Alignment.BottomCenter)
 
                 // Resolved here, not by the field that published `request`. This request can outlive
                 // that field's focus by a full exit animation (see `retainedRequest` above), so
@@ -229,7 +235,7 @@ fun NumberInputHost(
                         state = request.state,
                         style = resolvedStyle,
                         onDone = request.onDone,
-                        modifier = bottom.imePadding(),
+                        modifier = bottom.navigationBarsPadding().imePadding(),
                         leadingAccessory = leadingAccessory,
                         onPrevious = request.onPrevious,
                         onNext = request.onNext,

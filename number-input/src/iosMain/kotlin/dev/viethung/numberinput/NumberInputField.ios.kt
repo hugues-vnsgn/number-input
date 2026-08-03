@@ -1,7 +1,9 @@
 package dev.viethung.numberinput
 
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -11,14 +13,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.UIKitInteropProperties
 import androidx.compose.ui.viewinterop.UIKitView
 import kotlinx.cinterop.BetaInteropApi
+import kotlinx.cinterop.CValue
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.readValue
+import kotlinx.cinterop.useContents
+import platform.CoreGraphics.CGRect
+import platform.CoreGraphics.CGRectMake
 import platform.CoreGraphics.CGRectZero
 import platform.Foundation.NSAttributedString
 import platform.Foundation.NSSelectorFromString
@@ -154,9 +164,13 @@ internal actual fun PlatformNumberInputField(
     // CompositionLocal. See NumberInputCoordinator.keypadHosted.
     coordinator.keypadHosted = host != null
 
+    // Read at the composable frame: `update` runs outside composition, so a CompositionLocal cannot be
+    // reached from inside it. Same reason the style is resolved here.
+    val layoutDirection = LocalLayoutDirection.current
+
     UIKitView(
         factory = {
-            UITextField().apply {
+            NumberInputTextField().apply {
                 setKeyboardType(UIKeyboardTypeDecimalPad)
                 setDelegate(coordinator)
                 identify(NumberInputTags.FIELD)
@@ -169,11 +183,25 @@ internal actual fun PlatformNumberInputField(
                 )
             }
         },
-        modifier = modifier.bringIntoViewRequester(bringIntoViewRequester),
+        // Clipped to the field's own rounding, because rounding the `UITextField`'s layer is not
+        // enough on its own: the interop container Compose hosts it in stays opaque white, so the
+        // corners the layer cut away exposed it — four bright notches, invisible on a white surface
+        // and obvious on any other. Only applied when there is rounding to clip to, so an unrounded
+        // field gains no graphics layer and cannot change.
+        modifier = modifier
+            .let { base ->
+                if (resolvedStyle.cornerRadius > 0.dp) {
+                    base.clip(RoundedCornerShape(resolvedStyle.cornerRadius))
+                } else {
+                    base
+                }
+            }
+            .bringIntoViewRequester(bringIntoViewRequester),
         update = { textField ->
             coordinator.attach(textField, state, resolvedStyle)
             textField.setEnabled(enabled)
             textField.applyStyle(resolvedStyle, enabled, state.config.placeholder)
+            textField.applyContentPadding(resolvedStyle.contentPadding, layoutDirection)
 
             // Configured here rather than in `factory` so a changed config is honoured; `factory`
             // runs once, which would pin the very first value for the view's lifetime.
@@ -464,6 +492,64 @@ internal class NumberInputCoordinator : NSObject(), UITextFieldDelegateProtocol 
     override fun textFieldDidEndEditing(textField: UITextField) {
         onFocusChanged(false)
     }
+}
+
+/**
+ * A `UITextField` that honours [NumberInputStyle.contentPadding].
+ *
+ * UIKit has no content-inset property on `UITextField` — it draws its text flush to its own bounds —
+ * so the only supported way to inset it is to override the three rect methods it asks for its text
+ * area. All three are needed and each covers a different moment: [textRectForBounds] while resting,
+ * [editingRectForBounds] while first responder, [placeholderRectForBounds] while empty. Overriding
+ * one or two produces text that jumps by the inset when the field gains focus or is cleared.
+ *
+ * The insets are stored as four points rather than a `UIEdgeInsets` because a `CValue` cannot be held
+ * in a `var` without pinning; the arithmetic is the same either way.
+ *
+ * Rejected alternative: a `leftView`/`rightView` pair sized to the padding. It cannot inset
+ * vertically at all, and it spends two properties that belong to the consumer.
+ */
+@OptIn(ExperimentalForeignApi::class)
+internal class NumberInputTextField : UITextField(CGRectZero.readValue()) {
+    var insetLeft: Double = 0.0
+    var insetTop: Double = 0.0
+    var insetRight: Double = 0.0
+    var insetBottom: Double = 0.0
+
+    override fun textRectForBounds(bounds: CValue<CGRect>): CValue<CGRect> = inset(bounds)
+
+    override fun editingRectForBounds(bounds: CValue<CGRect>): CValue<CGRect> = inset(bounds)
+
+    override fun placeholderRectForBounds(bounds: CValue<CGRect>): CValue<CGRect> = inset(bounds)
+
+    // Clamped at zero: padding larger than the field would otherwise produce a negative size, which
+    // UIKit renders as an inverted rect rather than an empty one.
+    private fun inset(bounds: CValue<CGRect>): CValue<CGRect> = bounds.useContents {
+        CGRectMake(
+            x = origin.x + insetLeft,
+            y = origin.y + insetTop,
+            width = maxOf(0.0, size.width - insetLeft - insetRight),
+            height = maxOf(0.0, size.height - insetTop - insetBottom),
+        )
+    }
+}
+
+/**
+ * Copies [NumberInputStyle.contentPadding] onto the field, resolving start/end against
+ * [layoutDirection] so an RTL locale insets the side the text actually begins on.
+ *
+ * `Dp` and UIKit points are both density-independent and map 1:1, which is the same assumption
+ * `applyStyle` already makes for `cornerRadius` and `borderWidth`.
+ */
+internal fun NumberInputTextField.applyContentPadding(
+    padding: PaddingValues,
+    layoutDirection: LayoutDirection,
+) {
+    insetLeft = padding.calculateLeftPadding(layoutDirection).value.toDouble()
+    insetRight = padding.calculateRightPadding(layoutDirection).value.toDouble()
+    insetTop = padding.calculateTopPadding().value.toDouble()
+    insetBottom = padding.calculateBottomPadding().value.toDouble()
+    setNeedsLayout()
 }
 
 @OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
