@@ -1,6 +1,6 @@
 # number-input
 
-[![Maven Central](https://img.shields.io/maven-central/v/dev.viethung/number-input)](https://central.sonatype.com/artifact/dev.viethung/number-input)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.hugues-vnsgn/number-input)](https://central.sonatype.com/artifact/io.github.hugues-vnsgn/number-input)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Platforms](https://img.shields.io/badge/platforms-Android%20%7C%20iOS-lightgrey)](#requirements)
 
