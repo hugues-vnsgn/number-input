@@ -421,6 +421,42 @@ here uses, are unaffected.
 - **`NumberInputTags` is public**, replacing internal constants your tests had to retype. See
   [Testing](#testing).
 
+### What 2.3.0 fixes
+
+One addition and four rendering fixes. Unlike 2.2.0 this release **changes what you see** — every item
+below was the field drawing something other than what the style asked for, so a field that looks
+correct today may move. Read the two marked *visible change* before upgrading.
+
+- **`NumberInputStyle.contentPadding`** (`PaddingValues`, default `horizontal = 12.dp, vertical = 10.dp`).
+  Until now this was hardcoded to those values on Android and **absent entirely on iOS**, where a
+  `UITextField` draws its text flush to its own bounds. *Visible change on iOS:* text moves 12dp
+  inward. Pass `PaddingValues(0.dp)` to keep the old iOS rendering. It sits with the other text
+  properties, so positional construction is a compile error rather than a silent shift.
+- **`textAlign` now works on Android.** It was accepted, passed into the field's `TextStyle`, and
+  silently ignored: a single-line `BasicTextField` measures its text at the text's own width, so there
+  was nothing for the alignment to happen within, and the value stayed at the leading edge whatever you
+  set. iOS was always correct. *Visible change on Android:* any field with `TextAlign.End` or `Center`
+  moves to where it was asked to be.
+- **`borderWidth = 0.dp` now means no border on Android.** It drew a 1px hairline in `borderColor`,
+  because `Modifier.border` admits a zero width and strokes it as a hairline. iOS drew nothing, so the
+  same style rendered differently per platform.
+- **The field fills the height it is given.** Its background and border wrapped their content, so a
+  field with an explicit height — which iOS requires — drew short of its own bounds and sat against the
+  top edge. The text is now vertically centred.
+- **The built-in keypad's background reaches the physical bottom edge**, with only the keys inset by
+  the navigation bar, which is what a system keyboard does. The screen no longer shows through beneath
+  it, and `LocalNumberInputKeypadHeight` — previously short by the navigation-bar inset — now reports
+  the full height, so `Modifier.numberInputKeypadPadding()` reserves the right amount.
+- **iOS rounded fields no longer show white corner notches.** `cornerRadius` rounds the hosted
+  `UITextField`'s layer, and the interop container behind it is opaque white, so the corners cut away
+  exposed it — invisible on a white surface, four bright notches on any other. The interop view is now
+  clipped to the same shape.
+
+**Known limitation, unchanged:** `backgroundColor = Color.Transparent` does not show through on iOS.
+The interop container is opaque white and sits above whatever is drawn behind the field, so a
+transparent field reads as white rather than as its parent. Give iOS fields an opaque
+`backgroundColor`.
+
 ## Custom formatting
 
 `LocaleNumberFormatter` is public and injectable. If your app already renders numbers its own way,

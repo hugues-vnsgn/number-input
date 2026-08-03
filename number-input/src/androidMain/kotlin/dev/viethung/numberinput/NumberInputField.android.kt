@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,6 +21,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
@@ -179,19 +181,43 @@ internal actual fun PlatformNumberInputField(
                     decorationBox = { innerTextField ->
                         Box(
                             modifier = Modifier
+                                // Fills the height it is given rather than wrapping its text. The
+                                // decoration box already fills the *width* — `CoreTextField` wraps it
+                                // in a Box with `propagateMinConstraints = true` — but nothing gives it
+                                // a minimum height, so in a field the caller has sized (which iOS
+                                // requires, and every real design does) it drew ~40dp of background and
+                                // border inside a 48dp field and sat against the top edge.
+                                .fillMaxSize()
                                 .background(resolvedStyle.backgroundColor, shape)
-                                .border(
-                                    resolvedStyle.borderWidth,
-                                    resolvedStyle.borderColor.copy(
-                                        alpha = resolvedStyle.borderColor.alpha * contentAlpha,
-                                    ),
-                                    shape,
-                                )
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                // Guarded, because `Modifier.border(0.dp, …)` is not the no-op it
+                                // reads as: `Border.kt` admits any width `>= 0`, and the resulting
+                                // `Stroke(0f)` draws a *hairline*. A consumer who zeroed the border to
+                                // draw their own chrome got a 1px line in the default grey on Android
+                                // and nothing on iOS, where `setBorderWidth(0.0)` really does mean
+                                // none.
+                                .let { base ->
+                                    if (resolvedStyle.borderWidth > 0.dp) {
+                                        base.border(
+                                            resolvedStyle.borderWidth,
+                                            resolvedStyle.borderColor.copy(
+                                                alpha = resolvedStyle.borderColor.alpha * contentAlpha,
+                                            ),
+                                            shape,
+                                        )
+                                    } else {
+                                        base
+                                    }
+                                }
+                                .padding(resolvedStyle.contentPadding),
+                            contentAlignment = Alignment.CenterStart,
                         ) {
                             if (state.rawText.isEmpty() && state.config.placeholder.isNotEmpty()) {
                                 BasicText(
                                     text = state.config.placeholder,
+                                    // Full width for the same reason the field below needs it: a
+                                    // wrap-content text is exactly as wide as its glyphs, so its own
+                                    // `textAlign` has nothing to align within.
+                                    modifier = Modifier.fillMaxWidth(),
                                     style = TextStyle(
                                         color = resolvedStyle.placeholderColor.copy(
                                             alpha = resolvedStyle.placeholderColor.alpha * contentAlpha,
@@ -203,7 +229,16 @@ internal actual fun PlatformNumberInputField(
                                     ),
                                 )
                             }
-                            innerTextField()
+                            // The text *node* is what gets aligned, not the text inside it. See
+                            // `toHorizontalAlignment` — a single-line field's scroll modifier measures
+                            // the text at its natural width, so `textStyle.textAlign` alone moves
+                            // nothing and `TextAlign.End` was silently ignored on Android.
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalAlignment = resolvedStyle.textAlign.toHorizontalAlignment(),
+                            ) {
+                                innerTextField()
+                            }
                         }
                     },
                 )
