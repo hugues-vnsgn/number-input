@@ -40,9 +40,9 @@ class NumberInputIosBridgeTest {
         val items = assertNotNull(toolbar.items)
 
         assertEquals(4, items.size)
-        assertEquals(TAG_SIGN, identifierOf(items[0]!!))
-        assertEquals(TAG_CLEAR, identifierOf(items[1]!!))
-        assertEquals(TAG_DONE, identifierOf(items[3]!!))
+        assertEquals(NumberInputTags.TOOLBAR_SIGN, identifierOf(items[0]!!))
+        assertEquals(NumberInputTags.TOOLBAR_CLEAR, identifierOf(items[1]!!))
+        assertEquals(NumberInputTags.TOOLBAR_DONE, identifierOf(items[3]!!))
     }
 
     @Test
@@ -95,9 +95,9 @@ class NumberInputIosBridgeTest {
         val items = assertNotNull(coordinator.buildToolbar(style()).items)
 
         assertEquals(3, items.size)
-        assertEquals(TAG_CLEAR, identifierOf(items[0]!!))
-        assertEquals(TAG_DONE, identifierOf(items[2]!!))
-        assertFalse(items.any { identifierOf(it!!) == TAG_SIGN }, "expected no ± item")
+        assertEquals(NumberInputTags.TOOLBAR_CLEAR, identifierOf(items[0]!!))
+        assertEquals(NumberInputTags.TOOLBAR_DONE, identifierOf(items[2]!!))
+        assertFalse(items.any { identifierOf(it!!) == NumberInputTags.TOOLBAR_SIGN }, "expected no ± item")
     }
 
     /** And it is still present, merely disabled, while negatives are allowed but there is no value. */
@@ -110,7 +110,7 @@ class NumberInputIosBridgeTest {
         val items = assertNotNull(coordinator.buildToolbar(style()).items)
         coordinator.syncToolbar(empty.clearEnabled, empty.signEnabled)
 
-        assertEquals(TAG_SIGN, identifierOf(items[0]!!))
+        assertEquals(NumberInputTags.TOOLBAR_SIGN, identifierOf(items[0]!!))
         assertFalse((items[0] as UIBarButtonItem).enabled)
     }
 
@@ -173,8 +173,8 @@ class NumberInputIosBridgeTest {
     @Test
     fun field_identifier_is_set_through_key_value_coding() {
         val field = UITextField()
-        field.identify(TAG_FIELD)
-        assertEquals(TAG_FIELD, identifierOf(field))
+        field.identify(NumberInputTags.FIELD)
+        assertEquals(NumberInputTags.FIELD, identifierOf(field))
     }
 
     @Test

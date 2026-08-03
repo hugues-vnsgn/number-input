@@ -248,6 +248,34 @@ it depends on. Consumers with their own locale strategy can supply an implementa
 digit/sign/decimal splitting for live grouping lives in the internal `liveFormat()` inline helper; each
 platform passes only its separators and an integer-grouping lambda.
 
+Since 2.2.0 the **value-based `NumberInputField` overload takes a `formatter` too**, so injecting one
+no longer forces a consumer to hoist the state and hand-roll the outward/inward binding — the one part
+of this component that is genuinely fiddly. It defaults to `null`, not to `newLocaleNumberFormatter()`,
+and that is load-bearing rather than a style choice: it is a `remember` key alongside `config`, and a
+default that *constructed* a formatter would hand `remember` a fresh instance every recomposition and
+rebuild the state under the user mid-edit. The same trap applies to a consumer who constructs one
+inline at the call site, which is why the KDoc and the README both ask for a stable instance.
+
+**The overload itself has no automated cover, and cannot have any in this repo.** Composing it under
+`runComposeUiTest` throws `LocalInteropContainer not provided`: the iOS field is a `UIKitView`, and the
+interop container comes from `ComposeUIViewController`, not from the test harness. Android would
+compose it happily — it is pure Compose there — but there is no instrumented Android target and
+`androidUnitTest` is JVM-only. So anything whose behaviour only appears once `PlatformNumberInputField`
+renders belongs to the sample-app procedure below, not to a test task.
+`NumberInputFormatterInjectionTest` covers the half that *is* reachable: that an injected formatter
+governs canonicalisation and parsing, and that the platform one pads where a trimming one does not.
+
+**The field's font seam is two values** (2.2.0), `NumberInputStyle.fontFamily` for the Compose renderer
+and `iosFontName` for the UIKit one, and collapsing them is not available: this library cannot resolve
+a Compose `FontFamily` to a PostScript name, so a single parameter would be a lie about what crosses
+the boundary and would reintroduce the silent-no-op-on-iOS that the original omission was avoiding.
+`toUIFont()` falls back to the system font when `fontWithName` returns null, which is what an
+unregistered or misspelled name produces — the consumer has to add the typeface to their Xcode target
+and list it under `UIAppFonts`, since Compose resources are invisible to UIKit. Both halves of that
+failure are silent, so the name is worth one look on a device. A named face carries its own weight, so
+`textWeight` stops selecting one on that branch and applies only to the fallback; `IosFieldFontTest`
+pins both branches and that asymmetry.
+
 **Rendering (`PlatformNumberInputField`, `expect`/`actual`)** is where the two platforms diverge most:
 
 - *Android* (`NumberInputField.android.kt`): a `BasicTextField` whose buffer stays ungrouped;
@@ -275,7 +303,7 @@ Four things on the iOS path are load-bearing and each looks removable:
   means "use the default input view", i.e. the keyboard being replaced.
 - `UIKitInteropProperties(isNativeAccessibilityEnabled = true)` on the `UIKitView`. It defaults to
   **false**, which makes Compose publish its own semantics for the interop subtree and drop the hosted
-  view from the accessibility hierarchy entirely — `TAG_FIELD` then resolves to nothing for UI tests
+  view from the accessibility hierarchy entirely — `NumberInputTags.FIELD` then resolves to nothing for UI tests
   and VoiceOver, however correctly KVC set it. `NumberInputIosBridgeTest` still passes in that state,
   because the property really is set; nothing is reading it. Symptom: no `text-field` role anywhere in
   the tree.
@@ -358,7 +386,7 @@ identical numbers mean the path is behaving normally. Tapping those keys is impo
 off-screen, so drive text with `axe type` instead.
 
 The Xcode project is `cmp/iosApp/iosApp.xcodeproj`, scheme `iosApp`, bundle id
-`org.example.project.cmp`. Drive elements by the `TestTags.kt` identifiers, which are set as
+`org.example.project.cmp`. Drive elements by the `NumberInputTags` identifiers, which are set as
 `accessibilityIdentifier` on iOS and surface in the tree as `AXUniqueId` (not `AXIdentifier`). All
 four sample fields carry the same `numberInput.field` tag — it identifies the component, not the
 instance — so address them by index. Toolbar items live in the keyboard window rather than the Compose
@@ -370,6 +398,17 @@ correctly there until it does. Verify that before concluding a host/IME bug live
 
 The sample carries a fifth field for the built-in keypad (de-DE, `useBuiltInKeypad = true`), which is
 how that path was verified on the iOS simulator.
+
+`NumberInputSampleScreen`'s `baseStyle` also carries the 2.2.0 **font seam** — `FontFamily.Monospace`
+and `iosFontName = "Courier"` — which is how that was verified on both platforms. Neither needs
+registering (a Compose built-in alias, and a face that ships with iOS), so the fixture proves the seam
+without carrying font assets, and it is deliberately on this screen rather than `OFNumpadSampleScreen`,
+which is a design-parity fixture and has to stay faithful to the spec's typeface. It reads correctly
+when all five fields *and* the German placeholder render monospaced while every label and helper line
+around them stays in the platform sans — only the field is styled, so the contrast is the assertion.
+What it does **not** cover is the registration path a real brand font needs (Xcode target plus
+`UIAppFonts`), because a wrong or unregistered name fails silently to the system font; that belongs to
+the consuming app.
 
 The Android keypad path has now been run too, on the `Medium_Phone_API_36.1` AVD (API 36) — that run is
 what turned up the missing caret described under Architecture. Confirmed there: the IME stays down

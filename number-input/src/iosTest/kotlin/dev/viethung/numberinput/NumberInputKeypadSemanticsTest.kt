@@ -66,7 +66,7 @@ class NumberInputKeypadSemanticsTest {
         setContent { NumberInputKeypad(state = s, style = NumberInputStyle(), onDone = {}) }
 
         for (digit in 0..9) {
-            onNodeWithTag(keypadDigitTag(digit))
+            onNodeWithTag(NumberInputTags.keypadDigit(digit))
                 .assertHasClickAction()
                 .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
                 .assertContentDescriptionEquals(digit.toString())
@@ -79,13 +79,13 @@ class NumberInputKeypadSemanticsTest {
         val style = NumberInputStyle()
         setContent { NumberInputKeypad(state = s, style = style, onDone = {}) }
 
-        onNodeWithTag(TAG_KEYPAD_DECIMAL)
+        onNodeWithTag(NumberInputTags.KEYPAD_DECIMAL)
             .assertHasClickAction()
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
             // Punctuation has no useful spoken form, so the key carries a name instead of the glyph.
             .assertContentDescriptionEquals(style.keypad.decimalContentDescription)
 
-        onNodeWithTag(TAG_KEYPAD_BACKSPACE)
+        onNodeWithTag(NumberInputTags.KEYPAD_BACKSPACE)
             .assertHasClickAction()
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
             .assertContentDescriptionEquals(style.keypad.backspaceContentDescription)
@@ -115,8 +115,8 @@ class NumberInputKeypadSemanticsTest {
         val s = state()
         setContent { NumberInputKeypad(state = s, style = NumberInputStyle(), onDone = {}) }
 
-        onNodeWithTag(keypadDigitTag(4)).performClick()
-        onNodeWithTag(keypadDigitTag(2)).performClick()
+        onNodeWithTag(NumberInputTags.keypadDigit(4)).performClick()
+        onNodeWithTag(NumberInputTags.keypadDigit(2)).performClick()
 
         waitForIdle()
         kotlin.test.assertEquals("42", s.rawText)
@@ -132,9 +132,9 @@ class NumberInputKeypadSemanticsTest {
         s.pressDigit(3)
         setContent { NumberInputKeypad(state = s, style = NumberInputStyle(), onDone = {}) }
 
-        onNodeWithTag(keypadDigitTag(5)).assertIsNotEnabled()
-        onNodeWithTag(TAG_KEYPAD_DECIMAL).assertIsNotEnabled()
-        onNodeWithTag(TAG_KEYPAD_BACKSPACE).assertIsEnabled()
+        onNodeWithTag(NumberInputTags.keypadDigit(5)).assertIsNotEnabled()
+        onNodeWithTag(NumberInputTags.KEYPAD_DECIMAL).assertIsNotEnabled()
+        onNodeWithTag(NumberInputTags.KEYPAD_BACKSPACE).assertIsEnabled()
     }
 
     /**
@@ -155,7 +155,7 @@ class NumberInputKeypadSemanticsTest {
         val style = NumberInputStyle(keypad = NumberInputKeypadStyle(backspaceIcon = icon))
         setContent { NumberInputKeypad(state = s, style = style, onDone = {}) }
 
-        onNodeWithTag(TAG_KEYPAD_BACKSPACE)
+        onNodeWithTag(NumberInputTags.KEYPAD_BACKSPACE)
             .assertHasClickAction()
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
             .assertContentDescriptionEquals(style.keypad.backspaceContentDescription)
@@ -176,9 +176,9 @@ class NumberInputKeypadSemanticsTest {
         ).also { it.onFocusChanged(true) }
         setContent { NumberInputKeypad(state = s, style = NumberInputStyle(), onDone = {}) }
 
-        onAllNodesWithTag(TAG_SIGN).assertCountEquals(0)
-        onNodeWithTag(TAG_CLEAR).assertHasClickAction()
-        onNodeWithTag(TAG_DONE).assertHasClickAction()
+        onAllNodesWithTag(NumberInputTags.TOOLBAR_SIGN).assertCountEquals(0)
+        onNodeWithTag(NumberInputTags.TOOLBAR_CLEAR).assertHasClickAction()
+        onNodeWithTag(NumberInputTags.TOOLBAR_DONE).assertHasClickAction()
     }
 
     /** The three new accessory elements appear only when something supplies them. */
@@ -190,10 +190,10 @@ class NumberInputKeypadSemanticsTest {
         )
         setContent { NumberInputKeypad(state = s, style = style, onDone = {}, onNext = {}) }
 
-        onNodeWithTag(TAG_TOOLBAR_HINT).assertExists()
-        onNodeWithTag(TAG_TOOLBAR_NEXT).assertHasClickAction()
-        onAllNodesWithTag(TAG_TOOLBAR_PREVIOUS).assertCountEquals(0)
-        onAllNodesWithTag(TAG_TOOLBAR_LOGO).assertCountEquals(0)
+        onNodeWithTag(NumberInputTags.TOOLBAR_HINT).assertExists()
+        onNodeWithTag(NumberInputTags.TOOLBAR_NEXT).assertHasClickAction()
+        onAllNodesWithTag(NumberInputTags.TOOLBAR_PREVIOUS).assertCountEquals(0)
+        onAllNodesWithTag(NumberInputTags.TOOLBAR_LOGO).assertCountEquals(0)
     }
 
     /** Pressing a disabled key through the tree must be a no-op, matching what the rules promise. */
@@ -202,7 +202,7 @@ class NumberInputKeypadSemanticsTest {
         val s = state(significantDigits = 0)
         setContent { NumberInputKeypad(state = s, style = NumberInputStyle(), onDone = {}) }
 
-        onNodeWithTag(TAG_KEYPAD_DECIMAL).performClick()
+        onNodeWithTag(NumberInputTags.KEYPAD_DECIMAL).performClick()
 
         waitForIdle()
         kotlin.test.assertEquals("", s.rawText)

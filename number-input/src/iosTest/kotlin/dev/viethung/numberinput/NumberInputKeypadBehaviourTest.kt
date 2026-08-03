@@ -53,8 +53,8 @@ class NumberInputKeypadBehaviourTest {
             }
         }
 
-        onNodeWithTag(keypadDigitTag(1)).performClick()
-        onNodeWithTag(keypadDigitTag(2)).performClick()
+        onNodeWithTag(NumberInputTags.keypadDigit(1)).performClick()
+        onNodeWithTag(NumberInputTags.keypadDigit(2)).performClick()
         waitForIdle()
 
         assertEquals(2, haptics.count)
@@ -72,7 +72,7 @@ class NumberInputKeypadBehaviourTest {
             }
         }
 
-        onNodeWithTag(TAG_KEYPAD_DECIMAL).performClick()
+        onNodeWithTag(NumberInputTags.KEYPAD_DECIMAL).performClick()
         waitForIdle()
 
         assertEquals(0, haptics.count)
@@ -88,7 +88,7 @@ class NumberInputKeypadBehaviourTest {
             }
         }
 
-        onNodeWithTag(keypadDigitTag(1)).performClick()
+        onNodeWithTag(NumberInputTags.keypadDigit(1)).performClick()
         waitForIdle()
 
         assertEquals(0, haptics.count)
@@ -105,9 +105,9 @@ class NumberInputKeypadBehaviourTest {
         setContent { NumberInputKeypad(state = s, style = NumberInputStyle(), onDone = {}) }
         mainClock.advanceTimeBy(16)
 
-        onNodeWithTag(TAG_KEYPAD_BACKSPACE).performTouchInput { down(center) }
+        onNodeWithTag(NumberInputTags.KEYPAD_BACKSPACE).performTouchInput { down(center) }
         mainClock.advanceTimeBy(100)
-        onNodeWithTag(TAG_KEYPAD_BACKSPACE).performTouchInput { up() }
+        onNodeWithTag(NumberInputTags.KEYPAD_BACKSPACE).performTouchInput { up() }
         mainClock.advanceTimeBy(100)
 
         assertEquals("1234", s.rawText)
@@ -125,12 +125,12 @@ class NumberInputKeypadBehaviourTest {
         setContent { NumberInputKeypad(state = s, style = NumberInputStyle(), onDone = {}) }
         mainClock.advanceTimeBy(16)
 
-        onNodeWithTag(TAG_KEYPAD_BACKSPACE).performTouchInput { down(center) }
+        onNodeWithTag(NumberInputTags.KEYPAD_BACKSPACE).performTouchInput { down(center) }
         // The threshold, then three intervals.
         mainClock.advanceTimeBy(
             BackspaceRepeatDelayMillis + BackspaceRepeatIntervalMillis * 3 + 8,
         )
-        onNodeWithTag(TAG_KEYPAD_BACKSPACE).performTouchInput { up() }
+        onNodeWithTag(NumberInputTags.KEYPAD_BACKSPACE).performTouchInput { up() }
         mainClock.advanceTimeBy(100)
 
         // Four deletes: the one at the threshold plus three repeats. The release adds none.
@@ -146,11 +146,11 @@ class NumberInputKeypadBehaviourTest {
         setContent { NumberInputKeypad(state = s, style = NumberInputStyle(), onDone = {}) }
         mainClock.advanceTimeBy(16)
 
-        onNodeWithTag(TAG_KEYPAD_BACKSPACE).performTouchInput { down(center) }
+        onNodeWithTag(NumberInputTags.KEYPAD_BACKSPACE).performTouchInput { down(center) }
         mainClock.advanceTimeBy(
             BackspaceRepeatDelayMillis + BackspaceRepeatIntervalMillis * 20,
         )
-        onNodeWithTag(TAG_KEYPAD_BACKSPACE).performTouchInput { up() }
+        onNodeWithTag(NumberInputTags.KEYPAD_BACKSPACE).performTouchInput { up() }
         mainClock.advanceTimeBy(100)
 
         assertEquals("", s.rawText)
@@ -170,11 +170,11 @@ class NumberInputKeypadBehaviourTest {
         }
         mainClock.advanceTimeBy(16)
 
-        onNodeWithTag(TAG_KEYPAD_BACKSPACE).performTouchInput { down(center) }
+        onNodeWithTag(NumberInputTags.KEYPAD_BACKSPACE).performTouchInput { down(center) }
         mainClock.advanceTimeBy(
             BackspaceRepeatDelayMillis + BackspaceRepeatIntervalMillis * 4 + 8,
         )
-        onNodeWithTag(TAG_KEYPAD_BACKSPACE).performTouchInput { up() }
+        onNodeWithTag(NumberInputTags.KEYPAD_BACKSPACE).performTouchInput { up() }
         mainClock.advanceTimeBy(100)
 
         assertEquals(1, haptics.count)

@@ -159,7 +159,7 @@ internal actual fun PlatformNumberInputField(
             UITextField().apply {
                 setKeyboardType(UIKeyboardTypeDecimalPad)
                 setDelegate(coordinator)
-                identify(TAG_FIELD)
+                identify(NumberInputTags.FIELD)
                 setAdjustsFontForContentSizeCategory(true)
                 coordinator.attach(this, state, resolvedStyle)
                 addTarget(
@@ -188,7 +188,7 @@ internal actual fun PlatformNumberInputField(
         },
         // `isNativeAccessibilityEnabled` defaults to false, which makes Compose publish its own
         // semantics for this subtree and leaves the hosted view out of the accessibility hierarchy
-        // entirely — the `UITextField` was absent from the tree, so [TAG_FIELD] could not be
+        // entirely — the `UITextField` was absent from the tree, so [NumberInputTags.FIELD] could not be
         // resolved by UI tests or read by VoiceOver, however it was set. Opting in hands the subtree
         // back to UIKit, which is what a native text field wants: it already publishes its own
         // value, editing state and text traits, and Compose has nothing to add.
@@ -324,14 +324,14 @@ internal class NumberInputCoordinator : NSObject(), UITextFieldDelegateProtocol 
             style = UIBarButtonItemStyle.UIBarButtonItemStylePlain,
             target = this,
             action = NSSelectorFromString("clearTapped"),
-        ).apply { identify(TAG_CLEAR) }
+        ).apply { identify(NumberInputTags.TOOLBAR_CLEAR) }
 
         val sign = UIBarButtonItem(
             title = style.toolbar.signLabel,
             style = UIBarButtonItemStyle.UIBarButtonItemStylePlain,
             target = this,
             action = NSSelectorFromString("signTapped"),
-        ).apply { identify(TAG_SIGN) }
+        ).apply { identify(NumberInputTags.TOOLBAR_SIGN) }
 
         val spacer = UIBarButtonItem(
             barButtonSystemItem = UIBarButtonSystemItem.UIBarButtonSystemItemFlexibleSpace,
@@ -344,7 +344,7 @@ internal class NumberInputCoordinator : NSObject(), UITextFieldDelegateProtocol 
             style = UIBarButtonItemStyle.UIBarButtonItemStyleDone,
             target = this,
             action = NSSelectorFromString("doneTapped"),
-        ).apply { identify(TAG_DONE) }
+        ).apply { identify(NumberInputTags.TOOLBAR_DONE) }
 
         // Same rule the Compose row applies: a button that can never become enabled is omitted rather
         // than greyed. Expressible here because dropping a UIBarButtonItem needs no custom view —
@@ -527,10 +527,25 @@ internal fun Color.toUIColor(): UIColor = UIColor.colorWithRed(
     alpha = alpha.toDouble(),
 )
 
-internal fun NumberInputStyle.toUIFont(): UIFont = UIFont.systemFontOfSize(
-    fontSize = textSize.value.toDouble(),
-    weight = textWeight.toUIFontWeight(),
-)
+/**
+ * The field's font: [NumberInputStyle.iosFontName] when it names a face UIKit can resolve, and the
+ * system font otherwise.
+ *
+ * `fontWithName` returns null for an unregistered or misspelled name, and that is the failure to
+ * expect here — the consumer has to add the typeface to their Xcode target and list it under
+ * `UIAppFonts`, which bundling it as a Compose resource does not do. Falling back keeps a typo
+ * costing a wrong typeface rather than a crashed screen, at the price of being silent about it.
+ *
+ * A PostScript name already identifies one face, so [NumberInputStyle.textWeight] selects nothing on
+ * that branch and applies only to the fallback. `IosFieldFontTest` pins both branches and that
+ * asymmetry.
+ */
+internal fun NumberInputStyle.toUIFont(): UIFont {
+    val size = textSize.value.toDouble()
+    val named = iosFontName?.takeIf { it.isNotBlank() }
+        ?.let { UIFont.fontWithName(fontName = it, size = size) }
+    return named ?: UIFont.systemFontOfSize(fontSize = size, weight = textWeight.toUIFontWeight())
+}
 
 internal fun FontWeight.toUIFontWeight(): Double = when {
     weight >= 700 -> UIFontWeightBold

@@ -17,6 +17,16 @@ import androidx.compose.ui.Modifier
  * This overload owns its [NumberInputState] internally. To drive the field from your own ViewModel
  * or DI graph, construct a [NumberInputState] yourself and use the other overload.
  *
+ * [formatter] replaces the platform formatter (`DecimalFormat` / `NSNumberFormatter`) for this
+ * field, so an app that already renders numbers its own way can keep one rule rather than letting a
+ * second one in — mixing two produces visibly inconsistent separators, and the platform default pads
+ * to [NumberInputConfig.significantDigits] as a fixed width, which reads as invented trailing zeros
+ * against a house style that trims them. Null keeps the platform formatter.
+ *
+ * Supply a **stable** instance — remembered, injected, or an object — since it keys the state
+ * alongside [config]. Constructing one inline rebuilds the state on every recomposition, exactly as
+ * an inline [NumberInputConfig] would.
+ *
  * [onPrevious] and [onNext] add field-navigation buttons at the left of the toolbar row; null hides
  * each. **Compose row only.** iOS's system-keyboard path builds a native `UIToolbar`, and this
  * library exposes no way to move focus into another `UITextField` — so on iOS these are usable only
@@ -31,14 +41,23 @@ fun NumberInputField(
     config: NumberInputConfig = NumberInputConfig(),
     style: NumberInputStyle = NumberInputStyle(),
     enabled: Boolean = true,
+    formatter: LocaleNumberFormatter? = null,
     onPrevious: (() -> Unit)? = null,
     onNext: (() -> Unit)? = null,
 ) {
     // Keyed on config so a changed locale / digit cap rebuilds the state rather than silently
-    // keeping stale formatting. Unlike viewModel(key=), remember is per-call-site, so two fields
-    // with identical config never share an instance.
-    val state = remember(config) {
-        NumberInputState(initialValue = value, config = config)
+    // keeping stale formatting, and on formatter for the same reason. Unlike viewModel(key=),
+    // remember is per-call-site, so two fields with identical config never share an instance.
+    //
+    // The parameter defaults to null rather than to newLocaleNumberFormatter() precisely so it can
+    // be a key: a default that constructed a formatter would hand remember a fresh instance on
+    // every recomposition and rebuild the state under the user mid-edit.
+    val state = remember(config, formatter) {
+        NumberInputState(
+            formatter = formatter ?: newLocaleNumberFormatter(),
+            initialValue = value,
+            config = config,
+        )
     }
 
     // Outward: report only genuine value changes.

@@ -66,7 +66,7 @@ dependencyResolutionManagement {
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("dev.viethung:number-input:2.1.0")
+            implementation("dev.viethung:number-input:2.2.0")
         }
     }
 }
@@ -78,7 +78,7 @@ kotlin {
 ```toml
 # gradle/libs.versions.toml
 [versions]
-numberInput = "2.1.0"
+numberInput = "2.2.0"
 
 [libraries]
 number-input = { module = "dev.viethung:number-input", version.ref = "numberInput" }
@@ -280,6 +280,37 @@ Clear / ± / Done row on `NumberInputToolbarStyle`, and the built-in keypad on
 > The toolbar labels default to English and will ship to every user that way. Pass localised strings
 > from your own resources.
 
+### The field's typeface (2.2.0)
+
+The field takes **two** font values, and which one applies depends on the platform:
+
+```kotlin
+NumberInputStyle(
+    fontFamily = BeVietnamPro,           // Compose renderer — the Android field
+    iosFontName = "BeVietnamPro-Medium", // UIKit renderer — the iOS field, a PostScript name
+)
+```
+
+They are separate because a Compose `FontFamily` cannot cross into UIKit, and this library cannot
+resolve one down to a PostScript name. A single `fontFamily` would style Android and silently do
+nothing on iOS — which is why neither existed before 2.2.0. Setting only one is legal and gives the
+platform default on the other.
+
+Three things to know before the iOS half works:
+
+- **The font has to be registered with your app**, not just bundled for Compose. Add the files to the
+  Xcode target and list them under `UIAppFonts`. Compose resources are invisible to UIKit.
+- **`iosFontName` is a PostScript name** (`"BeVietnamPro-SemiBold"`), not a family or a filename.
+  Read it out of the font rather than guessing.
+- **Both failures are silent.** An unregistered or misspelled name falls back to the system font
+  rather than throwing, so check it on a device once instead of trusting that it compiled.
+
+Because a PostScript name already identifies one face, `textWeight` stops selecting a face when
+`iosFontName` is set — ask for the weight you want by name. It still applies on the fallback.
+
+The keypad and the toolbar row are Compose on both platforms, so they need only the single
+`fontFamily` on `NumberInputKeypadStyle` and `NumberInputToolbarStyle`.
+
 ### Light and dark
 
 Most of `NumberInputStyle` defaults to neutral literals, because the field is yours to theme — this
@@ -374,6 +405,22 @@ Enough styling surface to reproduce a real design spec without the library carry
 `UIToolbar`, and this library exposes no way to move focus into another `UITextField` — so on iOS they
 are usable with `useBuiltInKeypad` and a host, where you drive focus yourself.
 
+### What 2.2.0 adds
+
+Three additions, no removals or renames. Every one defaults to the 2.1.0 behaviour, so upgrading is a
+version bump — unless you construct `NumberInputStyle` **positionally**, since the two font values sit
+with the other text properties rather than at the end of the list. That is a compile error, not a
+silent shift, because no adjacent property shares their type. Named arguments, which every example
+here uses, are unaffected.
+
+- **A font seam on the field**: `NumberInputStyle.fontFamily` for the Compose renderer and
+  `iosFontName` for the UIKit one. See [The field's typeface](#the-fields-typeface-220) — in
+  particular why it is two values and what fails silently.
+- **A `formatter` parameter on the value-based `NumberInputField`**, so injecting your own number
+  formatting no longer means hoisting the state. See [Custom formatting](#custom-formatting).
+- **`NumberInputTags` is public**, replacing internal constants your tests had to retype. See
+  [Testing](#testing).
+
 ## Custom formatting
 
 `LocaleNumberFormatter` is public and injectable. If your app already renders numbers its own way,
@@ -394,19 +441,55 @@ NumberInputState(formatter = MyFormatter(), config = config)
 
 The defaults are `DecimalFormat` on Android and `NSNumberFormatter` on iOS.
 
+Since 2.2.0 the value-based overload takes one too, so injecting a formatter no longer forces you to
+hoist the state and rebuild the outward/inward binding by hand:
+
+```kotlin
+val formatter = remember { MyFormatter() }
+
+NumberInputField(
+    value = amount,
+    onValueChange = { amount = it },
+    formatter = formatter,
+)
+```
+
+Supply a **stable** instance — it keys the field's `remember` alongside `config`, so constructing one
+inline rebuilds the state on every recomposition, exactly as an inline `NumberInputConfig` would.
+Omitting it keeps the platform formatter.
+
+One reason to reach for this: `significantDigits` is a fixed width to the platform formatters, not a
+cap, so they pad. A field configured for three digits shows `4.200` and `0.000` on load. If your
+house style trims trailing zeros, that is not reachable by configuration — only by supplying a
+formatter, after which the digit count goes back to being just the typing cap.
+
 ## Testing
 
-Elements carry stable identifiers — Compose test tags on Android, `accessibilityIdentifier` on iOS:
+Elements carry stable identifiers — Compose test tags on Android, `accessibilityIdentifier` on iOS.
+Since 2.2.0 they are public API on `NumberInputTags`, so your tests can reference the constants
+instead of retyping the strings; a rename here then breaks your build rather than your assertions.
 
-| Element | Identifier |
-|---|---|
-| Field | `numberInput.field` |
-| Clear | `numberInput.toolbar.clear` |
-| Sign toggle | `numberInput.toolbar.toggleSign` |
-| Done | `numberInput.toolbar.done` |
+| Element | `NumberInputTags` | Identifier |
+|---|---|---|
+| Field | `FIELD` | `numberInput.field` |
+| Clear | `TOOLBAR_CLEAR` | `numberInput.toolbar.clear` |
+| Sign toggle | `TOOLBAR_SIGN` | `numberInput.toolbar.toggleSign` |
+| Done | `TOOLBAR_DONE` | `numberInput.toolbar.done` |
+| Hint | `TOOLBAR_HINT` | `numberInput.toolbar.hint` |
+| Logo slot | `TOOLBAR_LOGO` | `numberInput.toolbar.logo` |
+| Previous / next | `TOOLBAR_PREVIOUS` / `TOOLBAR_NEXT` | `numberInput.toolbar.previous` / `.next` |
+| Keypad | `KEYPAD` | `numberInput.keypad` |
+| Decimal key | `KEYPAD_DECIMAL` | `numberInput.keypad.decimal` |
+| Backspace | `KEYPAD_BACKSPACE` | `numberInput.keypad.backspace` |
+| Digit key | `keypadDigit(n)` | `numberInput.keypad.<n>` |
 
 These identify the *component*, not the instance, so a screen with several fields addresses them by
 index. In an iOS accessibility dump they appear as `AXUniqueId`.
+
+The keypad is Compose on both platforms and is therefore drivable from a Compose UI test. The
+**field** is not, on iOS: it is a hosted `UITextField`, which Compose can neither type into nor read.
+Drive input by tapping keypad identifiers and assert on the value callback rather than on the field's
+rendered text.
 
 ## How it works
 
@@ -438,7 +521,7 @@ Releases come from CI, so they do not depend on one laptop holding the keys. Bum
 `number-input/build.gradle.kts`, merge, then push a matching tag:
 
 ```bash
-git tag -a v2.1.0 -m "2.1.0" && git push origin v2.1.0
+git tag -a v2.2.0 -m "2.2.0" && git push origin v2.2.0
 ```
 
 `.github/workflows/release.yml` tests every target, publishes to Central and opens the GitHub
