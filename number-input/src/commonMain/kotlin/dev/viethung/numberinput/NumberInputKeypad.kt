@@ -68,9 +68,19 @@ import kotlinx.coroutines.launch
  * The Clear / ± / Done row is [NumberInputToolbarBar], unchanged. The keypad replaces the system
  * keyboard, so it has to carry what the keyboard's accessory view carried, and reusing that composable
  * is what stops the two arrangements drifting.
+ *
+ * Public API as of 2.4.0, as the library's testing and preview surface. In production this is drawn
+ * by [NumberInputHost] when the focused field requests it, and consumers should keep letting the host
+ * do that. But the host's path cannot exist inside `runComposeUiTest` on iOS: the field there is a
+ * hosted `UITextField`, and interop views cannot be created in that harness at all
+ * (`LocalInteropContainer not provided`), let alone focused by a Compose test. [NumberInputTags] was
+ * promoted to public API in 2.2.0 precisely as a testing contract, yet every composable carrying
+ * those tags was internal, so a consumer could not mount anything the contract addresses. Composing
+ * this directly against a [NumberInputState] - exactly as this library's own semantics tests do - is
+ * the supported way for a consumer's UI tests to drive the keypad identifiers and assert on state.
  */
 @Composable
-internal fun NumberInputKeypad(
+fun NumberInputKeypad(
     state: NumberInputState,
     style: NumberInputStyle,
     onDone: () -> Unit,

@@ -66,7 +66,7 @@ dependencyResolutionManagement {
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("io.github.hugues-vnsgn:number-input:2.2.0")
+            implementation("io.github.hugues-vnsgn:number-input:2.4.0")
         }
     }
 }
@@ -78,7 +78,7 @@ kotlin {
 ```toml
 # gradle/libs.versions.toml
 [versions]
-numberInput = "2.2.0"
+numberInput = "2.4.0"
 
 [libraries]
 number-input = { module = "io.github.hugues-vnsgn:number-input", version.ref = "numberInput" }
@@ -457,6 +457,31 @@ The interop container is opaque white and sits above whatever is drawn behind th
 transparent field reads as white rather than as its parent. Give iOS fields an opaque
 `backgroundColor`.
 
+### What 2.4.0 adds
+
+One visibility change, nothing else. `NumberInputKeypad` is public.
+
+It finishes what 2.2.0 started. `NumberInputTags` was promoted to public API as a testing contract,
+but every composable carrying those tags stayed internal, so a consumer could not mount anything the
+contract addresses. In production the keypad is still drawn by `NumberInputHost` when the focused
+field requests it, and that is what your app should keep doing — the public constructor is for tests
+and previews.
+
+It matters most on iOS, where the host's path cannot be reached from a test at all: the field there is
+a hosted `UITextField`, and interop views cannot be created under `runComposeUiTest`
+(`LocalInteropContainer not provided`), let alone focused by a Compose test. Composing the keypad
+directly against a `NumberInputState` — which is how this library's own semantics tests drive it — is
+the supported way to assert on the keypad identifiers and the state they produce.
+
+```kotlin
+val state = NumberInputState(config = NumberInputConfig(locale = "de-DE"))
+setContent { NumberInputKeypad(state = state, style = NumberInputStyle(), onDone = {}) }
+
+onNodeWithTag(NumberInputTags.keypadDigit(7)).performClick()
+onNodeWithTag(NumberInputTags.KEYPAD_DECIMAL).performClick()
+assertEquals("7,", state.rawText)   // the decimal key follows the field's locale, not the device's
+```
+
 ## Custom formatting
 
 `LocaleNumberFormatter` is public and injectable. If your app already renders numbers its own way,
@@ -540,6 +565,10 @@ Shared logic lives in `commonMain` and is UI-framework-free; each platform only 
 
 `rawText` is always ungrouped on both platforms; grouping is display-only. `commit()` is reached only
 by losing focus, and both platforms route Done through focus loss, so there is a single commit path.
+
+Since 2.4.0 `NumberInputKeypad` is public, so a test can mount the keypad directly against a
+`NumberInputState` and drive those identifiers — the only way to reach it on iOS, where the field is a
+hosted `UITextField` that no Compose test harness can create. See [What 2.4.0 adds](#what-240-adds).
 
 ## Building
 
