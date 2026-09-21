@@ -29,6 +29,10 @@ class NumberInputState(
     var rawText: String by mutableStateOf(plain(seed))
         private set
 
+    private var replaceZeroOnKeypadInput by mutableStateOf(seed == 0.0)
+
+    private val keypadText: String get() = if (replaceZeroOnKeypadInput) "0" else rawText
+
     var phase: NumberInputPhase by mutableStateOf(NumberInputPhase.Idle)
         private set
 
@@ -58,6 +62,7 @@ class NumberInputState(
             else -> parsed
         }
         rawText = newRawText
+        replaceZeroOnKeypadInput = false
         phase = NumberInputPhase.Editing
     }
 
@@ -73,24 +78,23 @@ class NumberInputState(
 
     val digitEnabled: Boolean
         get() = NumberInputKeypadRules.digitEnabled(
-            rawText,
+            keypadText,
             formatter.decimalSeparator(config.locale),
             config.significantDigits,
         )
 
     val decimalEnabled: Boolean
         get() = NumberInputKeypadRules.decimalEnabled(
-            rawText,
+            keypadText,
             formatter.decimalSeparator(config.locale),
             config.significantDigits,
         )
 
     val backspaceEnabled: Boolean get() = NumberInputKeypadRules.backspaceEnabled(rawText)
 
-    /** Append a digit. Ignored when the fraction is already full. */
     fun pressDigit(digit: Int) {
         require(digit in 0..9) { "digit must be in 0..9, got $digit" }
-        onTextChange(rawText + digit)
+        onTextChange(if (keypadText == "0") digit.toString() else keypadText + digit)
     }
 
     /**
@@ -101,7 +105,7 @@ class NumberInputState(
      * with. The translation still runs and is a no-op, since the character already matches.
      */
     fun pressDecimalSeparator() {
-        onTextChange(rawText + formatter.decimalSeparator(config.locale))
+        onTextChange(keypadText + formatter.decimalSeparator(config.locale))
     }
 
     /**
@@ -130,17 +134,20 @@ class NumberInputState(
         val toggled = -current
         value = toggled
         rawText = plain(toggled)
+        replaceZeroOnKeypadInput = toggled == 0.0
         phase = NumberInputPhase.Editing
     }
 
     fun clear() {
         value = null
         rawText = ""
+        replaceZeroOnKeypadInput = false
         phase = NumberInputPhase.Editing
     }
 
     fun commit() {
         rawText = plain(value)
+        replaceZeroOnKeypadInput = value == 0.0
         phase = NumberInputPhase.Idle
     }
 
@@ -155,6 +162,7 @@ class NumberInputState(
         if (next == this.value) return
         this.value = next
         rawText = plain(next)
+        replaceZeroOnKeypadInput = next == 0.0
         phase = NumberInputPhase.Idle
     }
 

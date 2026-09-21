@@ -37,6 +37,95 @@ class NumberInputKeypadTest {
     // --- digits -------------------------------------------------------------------------------
 
     @Test
+    fun digits_replace_loaded_zero_without_clearing_on_focus() {
+        for (locale in listOf("en-US", "vi-VN")) {
+            for (precision in listOf(0, 2)) {
+                val s = state(locale = locale, significantDigits = precision, initialValue = 0.0)
+                val loadedText = s.rawText
+                assertEquals(0.0, s.value)
+                s.onFocusChanged(false)
+                assertEquals(loadedText, s.rawText)
+                assertEquals(0.0, s.value)
+                s.onFocusChanged(true)
+                assertTrue(s.digitEnabled)
+
+                "390000".forEach { s.pressDigit(it - '0') }
+
+                assertEquals("390000", s.rawText)
+                assertEquals(390000.0, s.value)
+            }
+        }
+    }
+
+    @Test
+    fun leading_zero_presses_do_not_accumulate() {
+        val s = state(significantDigits = 0, initialValue = 0.0)
+        repeat(3) { s.pressDigit(0) }
+        assertEquals("0", s.rawText)
+        "390000".forEach { s.pressDigit(it - '0') }
+        assertEquals("390,000", groupForDisplay(s.rawText, ",", ".").first)
+        assertEquals(390000.0, s.value)
+    }
+
+    @Test
+    fun decimal_entry_from_loaded_zero_preserves_fractional_zeros_and_cap() {
+        for (locale in listOf("en-US", "vi-VN")) {
+            val s = state(locale = locale, initialValue = 0.0)
+            val separator = s.decimalKeyLabel
+            assertTrue(s.decimalEnabled)
+            s.pressDecimalSeparator()
+            s.pressDigit(0)
+            assertEquals("0${separator}0", s.rawText)
+            assertTrue(s.digitEnabled)
+            s.pressDigit(5)
+            assertEquals(0.05, s.value)
+            assertEquals("0${separator}05", s.rawText)
+            assertFalse(s.digitEnabled)
+            assertFalse(s.decimalEnabled)
+            s.pressDigit(9)
+            assertEquals(0.05, s.value)
+        }
+    }
+
+    @Test
+    fun zero_can_be_cleared_and_reentered() {
+        val s = state(initialValue = 0.0)
+        s.clear()
+        assertNull(s.value)
+        assertEquals("", s.rawText)
+        s.pressDigit(0)
+        s.pressDigit(5)
+        assertEquals("5", s.rawText)
+        assertEquals(5.0, s.value)
+    }
+
+    @Test
+    fun committed_and_externally_loaded_zero_can_be_replaced() {
+        val s = state(initialValue = 12.0)
+        s.onFocusChanged(false)
+        s.syncExternalValue(0.0)
+        s.onFocusChanged(true)
+        s.pressDigit(0)
+        s.onFocusChanged(false)
+        assertEquals("0.00", s.rawText)
+        s.onFocusChanged(true)
+        s.pressDigit(3)
+        assertEquals("3", s.rawText)
+        assertEquals(3.0, s.value)
+    }
+
+    @Test
+    fun zero_replacement_preserves_nonzero_and_signed_editing() {
+        val s = state(significantDigits = 0, initialValue = 12.0)
+        s.pressDigit(3)
+        assertEquals(123.0, s.value)
+        s.toggleSign()
+        s.pressDigit(4)
+        assertEquals("-1234", s.rawText)
+        assertEquals(-1234.0, s.value)
+    }
+
+    @Test
     fun digits_append_in_order() {
         val s = state()
 

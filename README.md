@@ -43,7 +43,7 @@ displayed string in agreement.
 |---|---|
 | Kotlin | 2.2.20 or newer |
 | Compose Multiplatform | 1.9.0 or newer |
-| Android | `minSdk` 23, JVM target 11 |
+| Android | `minSdk` 21, JVM target 11 |
 | iOS | `iosArm64`, `iosSimulatorArm64`, `iosX64` |
 
 Kotlin klibs have no forward compatibility, so a consumer on an **older** Kotlin than 2.2.20 cannot
@@ -66,7 +66,7 @@ dependencyResolutionManagement {
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("io.github.hugues-vnsgn:number-input:2.4.0")
+            implementation("io.github.hugues-vnsgn:number-input:2.4.1")
         }
     }
 }
@@ -78,7 +78,7 @@ kotlin {
 ```toml
 # gradle/libs.versions.toml
 [versions]
-numberInput = "2.4.0"
+numberInput = "2.4.1"
 
 [libraries]
 number-input = { module = "io.github.hugues-vnsgn:number-input", version.ref = "numberInput" }
