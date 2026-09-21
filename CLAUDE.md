@@ -51,7 +51,7 @@ forward compatibility, so the Kotlin/CMP versions here are the hard minimum for 
 - Kotlin 2.2.20 / CMP 1.9.0 match the primary consumer (`of1-freight-mobile` / BFSOne) exactly.
 - `iosX64()` is retained because that consumer still declares it; CMP 1.11 removes it. Do not bump to
   1.11 without confirming every consumer dropped the target.
-- `jvmTarget`/Java 11 and `minSdk = 23` are set below the consumer's own floor so the library is never
+- `jvmTarget`/Java 11 and `minSdk = 21` are set below the consumer's own floor so the library is never
   the binding constraint.
 
 Read the comments in `libs.versions.toml` and `number-input/build.gradle.kts` before changing any of

@@ -18,7 +18,7 @@ mavenPublish = "0.33.0"
 
 android-compileSdk = "35"
 # Deliberately below BFSOne's 24 so the library is not the binding constraint.
-android-minSdk = "23"
+android-minSdk = "21"
 
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
