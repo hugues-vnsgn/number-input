@@ -20,12 +20,21 @@ android-compileSdk = "35"
 # Deliberately below BFSOne's 24 so the library is not the binding constraint.
 android-minSdk = "21"
 
+# :sample-android only. Nothing here reaches the published artifact, so it is outside the floor above
+# — but the sample deliberately builds against the *same* kotlin/compose/agp refs as the library, which
+# is the whole reason it exists rather than living in another repo.
+androidx-activity = "1.9.3"
+sample-minSdk = "24"
+
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity" }
 
 [plugins]
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 compose-multiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
 android-library = { id = "com.android.library", version.ref = "agp" }
+android-application = { id = "com.android.application", version.ref = "agp" }
 maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "mavenPublish" }

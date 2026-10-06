@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Deliberately a bare platform theme rather than AppCompat or Material. The library draws its own
+      chrome and reads no theme, so anything richer here would be scenery the defects could hide
+      behind — a Material field outline looks enough like the library's border to mask a wrong one.
+
+      windowLightStatusBar is false because the sample's own background is light; without it the
+      status-bar icons are white on white under enableEdgeToEdge.
+    -->
+    <style name="Theme.NumberInputSample" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>
